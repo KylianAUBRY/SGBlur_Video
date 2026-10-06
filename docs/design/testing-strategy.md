@@ -26,6 +26,10 @@ need a reference built independently of the model:
 
 ## A — Synthetic oracle (CI privacy gate)
 
+*Implemented in step 4: `tests/privacy/`. It runs on every push, for H.264
+8-bit and HEVC 10-bit, plus a negative control proving that the same scenario
+leaks when padding, interpolation and linking are disabled.*
+
 `tests/privacy/synthetic.py` generates short videos (flat 1920×1080 and
 equirect 3840×1920, H.264 and HEVC 10-bit, CFR and VFR) containing moving
 "objects": high-frequency textured patches (checkerboards, text-like noise)

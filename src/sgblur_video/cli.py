@@ -13,14 +13,18 @@ Example:
 """
 
 import json
+import logging
+import sys
+import tempfile
+import time
 from pathlib import Path
 from typing import Annotated, NoReturn
 
 import typer
 
 from sgblur_video import __version__
-from sgblur_video.config import get_settings
-from sgblur_video.models import RegistryError, load_registry
+from sgblur_video.config import Settings, get_settings
+from sgblur_video.models import ClassPolicyError, RegistryError, WeightsError, ensure_weights, load_registry
 
 app = typer.Typer(
     name="sgblur-video",
@@ -56,6 +60,57 @@ def _planned(step: str) -> NoReturn:
     raise typer.Exit(code=2)
 
 
+MaxFramesOption = Annotated[
+    int | None, typer.Option("--max-frames", min=1, help="Process only the first N frames (development).")
+]
+
+
+def _setup(tracker: Path | None = None) -> Settings:
+    """Configure logging and return the settings, with CLI overrides applied."""
+    settings = get_settings()
+    logging.basicConfig(
+        level=settings.log_level, format="%(asctime)s %(levelname)s %(name)s: %(message)s", stream=sys.stderr
+    )
+    if tracker is not None:
+        settings = settings.model_copy(update={"tracker_config": tracker})
+    return settings
+
+
+class _Progress:
+    """Minimal progress line on stderr (one update per percent at most)."""
+
+    def __init__(self, label: str) -> None:
+        self._label = label
+        self._last = -1
+        self._started = time.monotonic()
+
+    def __call__(self, done: int, total: int | None) -> None:
+        percent = int(done * 100 / total) if total else -1
+        if percent == self._last and done % 100:
+            return
+        self._last = percent
+        rate = done / max(1e-6, time.monotonic() - self._started)
+        shown = f"{percent:3d} %" if percent >= 0 else f"{done} frames"
+        typer.echo(f"\r{self._label}: {shown} ({rate:.1f} fps)", err=True, nl=False)
+        if total and done >= total:
+            typer.echo("", err=True)
+            self._started = time.monotonic()
+
+
+def _fail(exc: Exception) -> NoReturn:
+    """Print an expected error (bad input, missing model…) without a traceback and exit with code 1."""
+    typer.echo(f"error: {exc}", err=True)
+    raise typer.Exit(code=1) from exc
+
+
+def _expected_errors() -> tuple[type[Exception], ...]:
+    """Errors reported to the user as messages rather than tracebacks."""
+    from sgblur_video.core.detections_io import DetectionsFormatError
+    from sgblur_video.core.probe import UnsupportedVideoError
+
+    return (UnsupportedVideoError, DetectionsFormatError, RegistryError, WeightsError, ClassPolicyError)
+
+
 @app.command()
 def version() -> None:
     """Print the sgblur-video version."""
@@ -87,7 +142,16 @@ def models_download(
     name: Annotated[str | None, typer.Argument(help="Model name (default: all).")] = None,
 ) -> None:
     """Download model weights into ``MODELS_DIR`` and verify their SHA-256."""
-    _planned("step 4")
+    settings = _setup()
+    try:
+        registry = load_registry(settings.models_file)
+        entries = [registry.get(name)] if name else list(registry.models)
+        for entry in entries:
+            path = ensure_weights(entry, settings.models_dir)
+            typer.echo(f"{entry.name}: {path} (verified)")
+    except (RegistryError, WeightsError) as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
 
 
 @app.command()
@@ -99,9 +163,33 @@ def blur(
     debug: Annotated[
         bool, typer.Option("--debug", help="Also write an annotated debug video next to the output.")
     ] = False,
+    keep_detections: Annotated[
+        Path | None,
+        typer.Option("--keep-detections", dir_okay=False, help="Also save detections.jsonl here."),
+    ] = None,
+    max_frames: MaxFramesOption = None,
 ) -> None:
     """Detect, track and blur a video in one command (passes 1 and 2)."""
-    _planned("step 4")
+    from sgblur_video.core.pipeline import run_blur
+
+    settings = _setup(tracker)
+    debug_output = output_video.with_name(f"{output_video.stem}.debug.mp4") if debug else None
+    with tempfile.TemporaryDirectory(prefix="sgblur-video-") as scratch:
+        detections_path = keep_detections or Path(scratch) / "detections.jsonl"
+        try:
+            summary = run_blur(
+                input_video,
+                output_video,
+                settings,
+                detections_path=detections_path,
+                model_name=model,
+                debug_output=debug_output,
+                max_frames=max_frames,
+                progress=_Progress("progress"),
+            )
+        except _expected_errors() as exc:
+            _fail(exc)
+    typer.echo(json.dumps(summary, indent=2))
 
 
 @app.command()
@@ -110,9 +198,24 @@ def detect(
     out: Annotated[Path, typer.Option("--out", dir_okay=False, help="detections.jsonl to write.")],
     model: ModelOption = None,
     tracker: TrackerOption = None,
+    max_frames: MaxFramesOption = None,
 ) -> None:
     """Run pass 1 only and write ``detections.jsonl``."""
-    _planned("step 4")
+    from sgblur_video.core.pipeline import run_detect
+
+    settings = _setup(tracker)
+    try:
+        _info, footer = run_detect(
+            input_video,
+            out,
+            settings,
+            model_name=model,
+            max_frames=max_frames,
+            progress=_Progress("analysis"),
+        )
+    except _expected_errors() as exc:
+        _fail(exc)
+    typer.echo(footer.model_dump_json(indent=2))
 
 
 @app.command()
@@ -121,9 +224,28 @@ def render(
     detections: Annotated[Path, typer.Argument(exists=True, dir_okay=False, help="detections.jsonl.")],
     output_video: OutputVideo,
     debug: Annotated[bool, typer.Option("--debug", help="Also write an annotated debug video.")] = False,
+    allow_partial: Annotated[
+        bool, typer.Option("--allow-partial", help="Render even if detections.jsonl is incomplete.")
+    ] = False,
 ) -> None:
     """Run post-processing and pass 2 from an existing ``detections.jsonl``."""
-    _planned("step 4")
+    from sgblur_video.core.pipeline import run_render
+
+    settings = _setup()
+    debug_output = output_video.with_name(f"{output_video.stem}.debug.mp4") if debug else None
+    try:
+        result = run_render(
+            input_video,
+            detections,
+            output_video,
+            settings,
+            debug_output=debug_output,
+            allow_partial=allow_partial,
+            progress=_Progress("rendering"),
+        )
+    except _expected_errors() as exc:
+        _fail(exc)
+    typer.echo(json.dumps({"blur": result.plan.stats, "frames": result.render.frames}, indent=2))
 
 
 @app.command()

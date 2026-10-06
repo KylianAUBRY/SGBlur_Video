@@ -173,6 +173,11 @@ Measured on Apple M4 Pro, `ultralytics 8.4.173`, `torch 2.14.1` (MPS), PyAV 19.0
 | Encode HEVC 10-bit, VideoToolbox | 14.7 fps | — |
 | Encode HEVC 10-bit, libx265 `medium` / `veryfast` | 1.2 / 2.3 fps | — |
 
+End-to-end pipeline measured in step 4 on the same machine (8K equirect,
+`DETECT_PROFILE=standard`, 4 passes per frame): **analysis ≈ 0.4 s/frame**
+(2.5 fps), **rendering ≈ 14.5 fps** (encoder-bound, debug video included).
+1080p GoPro: analysis ≈ 11 fps (2 passes), rendering ≈ 85 fps.
+
 Consequences:
 
 - An 8K 360° clip of 96 s (2893 frames) needs ≈ 16 min of analysis plus ≈ 3.5 min of encoding natively on this machine (≈ 0.05× real time). Detection, not decoding, dominates.

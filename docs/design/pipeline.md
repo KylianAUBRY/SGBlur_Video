@@ -136,6 +136,16 @@ contains at least one detection ≥ `CONF_BLUR`. Detections between
 face turns away) without blurring isolated low-score noise. Every blurred
 detection then goes through the steps below.
 
+### 3.0b Offline linking ([ADR-0011](../adr/0011-offline-linking.md))
+
+Tracker tracks and orphans are *fragments*. Fragments of the same class group
+are chained when one starts at most `LINK_MAX_GAP_S` (*1 s*) after a chain ends,
+within `LINK_MAX_DISTANCE` (*1* box size, +10 % per frame of gap) of the chain's
+extrapolated position, with areas within ×4. Small, distant objects are often
+seen only every other frame and trackers fail to confirm them; linking turns
+those sightings back into continuous chains, which then go through the steps
+below (the selection rule of §3.0 applies per chain).
+
 ### 3.1 Seam stitching (equirect only)
 
 A track whose last box touches one vertical edge (within `SEAM_MARGIN`, *2 %*
@@ -220,7 +230,7 @@ subsampled resolution with a downsampled mask), in the source bit depth
 
 | `BLUR_METHOD` | Operation | Notes |
 |---|---|---|
-| `pixelate_blur` (default) | Mosaic with at most `PIXELATE_CELLS` (*6*) cells on the shape's long side (area averaging), then Gaussian blur with σ = cell size / 2, applied through the shape mask | Mosaics with many cells can be partly re-identified by machine learning (McPherson et al., 2016, arXiv:1609.00408), hence few cells plus blur. |
+| `pixelate_blur` (default) | Area-average down to at most `PIXELATE_CELLS` (*6*) cells on the shape's long side, smooth at that resolution, interpolate back bilinearly, applied through the shape mask | Only ≤ 6×6 averages survive. Mosaics with many cells can be partly re-identified by machine learning (McPherson et al., 2016, arXiv:1609.00408), hence few cells and no block edges. |
 | `gaussian_strong` | Gaussian blur with σ = long side / 4, plus low-amplitude noise | Kept for users who prefer the look; weaker than mosaic against deconvolution. |
 | `solid` | Constant neutral grey | Maximum guarantee, least pleasant. |
 

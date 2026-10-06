@@ -50,6 +50,15 @@ def test_config_masks_secrets(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_planned_commands_exit_with_code_2(tmp_path: Path) -> None:
     video = tmp_path / "in.mp4"
     video.write_bytes(b"")
-    result = runner.invoke(app, ["blur", str(video), str(tmp_path / "out.mp4")])
+    result = runner.invoke(app, ["signs", str(video), "--out", str(tmp_path / "signs.json")])
     assert result.exit_code == 2
-    assert "step 4" in result.output
+    assert "step 5" in result.output
+
+
+def test_invalid_video_is_reported_without_traceback(tmp_path: Path) -> None:
+    video = tmp_path / "in.mp4"
+    video.write_bytes(b"not a video")
+    result = runner.invoke(app, ["blur", str(video), str(tmp_path / "out.mp4")])
+    assert result.exit_code == 1
+    assert "not a readable video" in result.output
+    assert result.exception is None or isinstance(result.exception, SystemExit)

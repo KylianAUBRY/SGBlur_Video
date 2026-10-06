@@ -283,6 +283,26 @@ class Settings(BaseSettings):
         description="Longest gap inside a track that is filled by interpolation, in seconds.",
         json_schema_extra=_doc("Post-processing and blur", "Lower values leave gaps unblurred."),
     )
+    link_max_gap_s: float = Field(
+        1.0,
+        ge=0.0,
+        description=(
+            "Longest interruption, in seconds, across which detections of one object are linked offline "
+            "(flickering small objects)."
+        ),
+        json_schema_extra=_doc(
+            "Post-processing and blur",
+            "Lower values break objects into more pieces (more padding, not less blur).",
+        ),
+    )
+    link_max_distance: float = Field(
+        1.0,
+        gt=0.0,
+        description=(
+            "Maximum distance, in box sizes, between where an object was heading and where it reappears."
+        ),
+        json_schema_extra=_doc("Post-processing and blur", "Lower values break objects into more pieces."),
+    )
     sign_min_track_length: int = Field(
         5,
         ge=1,

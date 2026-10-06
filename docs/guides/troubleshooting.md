@@ -2,14 +2,16 @@
 
 ## `ModuleNotFoundError: No module named 'sgblur_video'` after `uv sync` (macOS)
 
-Python 3.14 ignores `.pth` files that carry the macOS *hidden* flag, and the
-editable-install `.pth` of a freshly created `.venv` can inherit it. Fix:
+Python 3.14 ignores `.pth` files that carry the macOS *hidden* flag. The files
+inside `.venv` sometimes get that flag (we have seen it applied to the whole
+directory after a `uv sync`), and the editable install of `sgblur_video` then
+disappears. Fix:
 
 ```bash
 chflags -R nohidden .venv
 ```
 
-or reinstall the package: `uv sync --reinstall-package sgblur-video`.
+The test suite is not affected: pytest adds `src/` to the import path itself.
 
 ## `objc: Class AVF… is implemented in both …` warnings (macOS)
 

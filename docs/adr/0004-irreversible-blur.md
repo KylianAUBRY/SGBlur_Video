@@ -27,9 +27,16 @@ apply to faces and plates?
 
 ## Decision Outcome
 
-Chosen option: **2 by default** (`BLUR_METHOD=pixelate_blur`, at most
-`PIXELATE_CELLS=6` cells on the long side, then σ = cell/2), with **3**
-(`solid`) and a strong Gaussian variant (`gaussian_strong`) selectable.
+Chosen option: **2 by default** (`BLUR_METHOD=pixelate_blur`: the region is
+averaged down to at most `PIXELATE_CELLS=6` cells on its long side, smoothed at
+that low resolution and interpolated back bilinearly), with **3** (`solid`) and
+a strong Gaussian variant (`gaussian_strong`, also computed at reduced
+resolution) selectable.
+
+Update (step 4): the first implementation applied a full-resolution Gaussian
+(σ = cell/2) after the mosaic. On 8K frames it cost ~70 ms per region (3 s per
+frame); smoothing the ≤ 6×6 averages before upscaling gives the same visual
+result (no block edges) and the same information bound in microseconds.
 
 Shapes: faces use the **ellipse circumscribing** the margin-enlarged box
 (semi-axes √2 × half-sides — an inscribed ellipse would leave the 21.5 %

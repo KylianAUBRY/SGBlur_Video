@@ -16,14 +16,19 @@ Example:
     'yolo26s'
 """
 
+import hashlib
+import logging
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Literal, Self
 
+import httpx
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, model_validator
 
 from sgblur_video.config import ClassAction
+
+logger = logging.getLogger(__name__)
 
 
 class RegistryError(ValueError):
@@ -220,3 +225,62 @@ def check_class_policy(model_classes: Sequence[str], policy: Mapping[str, ClassA
         if name not in policy
     ]
     return warnings
+
+
+class WeightsError(RuntimeError):
+    """Model weights could not be downloaded or failed verification."""
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def ensure_weights(entry: ModelEntry, models_dir: Path, *, client: httpx.Client | None = None) -> Path:
+    """Return the verified local path of a model, downloading it if needed.
+
+    The file is downloaded to a temporary name, verified (size and SHA-256),
+    then atomically renamed. An existing file with a wrong hash is replaced.
+
+    Args:
+        entry: Registry entry.
+        models_dir: Destination folder (``MODELS_DIR``).
+        client: HTTP client (tests inject a mock transport).
+
+    Returns:
+        Path of the verified weights.
+
+    Raises:
+        WeightsError: On download failure or verification mismatch.
+    """
+    models_dir.mkdir(parents=True, exist_ok=True)
+    target = models_dir / entry.file
+    if target.exists() and _sha256(target) == entry.sha256:
+        return target
+    temporary = target.with_name(target.name + ".part")
+    http = client or httpx.Client(follow_redirects=True, timeout=httpx.Timeout(30.0, read=300.0))
+    logger.info("downloading model %s from %s", entry.name, entry.url)
+    try:
+        with http.stream("GET", str(entry.url)) as response:
+            response.raise_for_status()
+            with temporary.open("wb") as handle:
+                for chunk in response.iter_bytes(1 << 20):
+                    handle.write(chunk)
+    except httpx.HTTPError as exc:
+        temporary.unlink(missing_ok=True)
+        msg = f"cannot download model {entry.name}: {exc}"
+        raise WeightsError(msg) from exc
+    finally:
+        if client is None:
+            http.close()
+    size = temporary.stat().st_size
+    digest = _sha256(temporary)
+    if (entry.size_bytes is not None and size != entry.size_bytes) or digest != entry.sha256:
+        temporary.unlink(missing_ok=True)
+        msg = f"model {entry.name}: verification failed (size {size}, sha256 {digest})"
+        raise WeightsError(msg)
+    temporary.replace(target)
+    return target

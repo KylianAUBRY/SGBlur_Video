@@ -106,4 +106,5 @@ nav:
       - adr/0008-video-io-and-metadata-preservation.md
       - adr/0009-model-registry-and-class-policy.md
       - adr/0010-privacy-testing-strategy.md
+      - adr/0011-offline-linking.md
   - Licence: license.md
