@@ -1,17 +1,19 @@
 # FAQ and troubleshooting
 
-## `ModuleNotFoundError: No module named 'sgblur_video'` after `uv sync` (macOS)
+## `ModuleNotFoundError: No module named 'sgblur_video'` (macOS, iCloud Drive)
 
-Python 3.14 ignores `.pth` files that carry the macOS *hidden* flag. The files
-inside `.venv` sometimes get that flag (we have seen it applied to the whole
-directory after a `uv sync`), and the editable install of `sgblur_video` then
-disappears. Fix:
+When the project lives in a folder synced by iCloud Drive (by default
+`~/Desktop` and `~/Documents`), iCloud marks the content of dot-directories
+such as `.venv` as *hidden*. Python 3.14 ignores hidden `.pth` files, so the
+editable install of `sgblur_video` disappears. Keep the virtualenv in a
+non-hidden folder and point `.venv` to it:
 
 ```bash
-chflags -R nohidden .venv
+mv .venv venv && ln -s venv .venv && chflags -R nohidden venv
 ```
 
-The test suite is not affected: pytest adds `src/` to the import path itself.
+(or clone the project outside iCloud-synced folders). The test suite is not
+affected either way: pytest adds `src/` to the import path itself.
 
 ## `objc: Class AVF… is implemented in both …` warnings (macOS)
 

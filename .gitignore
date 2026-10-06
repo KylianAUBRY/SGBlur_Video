@@ -55,3 +55,8 @@ htmlcov/
 .DS_Store
 .idea/
 .vscode/
+
+# --- iCloud Drive conflict copies ("name 2.ext", "folder 2") -----------------------
+# The repository may live in an iCloud-synced folder (Desktop, Documents).
+* 2
+* 2.*

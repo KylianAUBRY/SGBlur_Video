@@ -10,6 +10,10 @@ Reference generated from the docstrings of the package.
 
 ::: sgblur_video.core.postprocess
 
+::: sgblur_video.semantics.annotations
+
+::: sgblur_video.core.frames
+
 ::: sgblur_video.core.detect
 
 ::: sgblur_video.core.track

@@ -24,9 +24,10 @@ upstream pages; see [docs/license.md](docs/license.md) for what they imply.
 | `python-multipart` | 0.0.32 | Apache-2.0 | |
 | `httpx` | 0.28.1 | BSD-3-Clause | |
 | `cryptography` | 50.0.2 | Apache-2.0 OR BSD-3-Clause | |
+| `pillow` | 12.3.0 | MIT-CMU | Best-frame JPEGs with EXIF |
 
 Transitive dependencies are listed in `uv.lock`; notable ones: `polars` (MIT),
-`matplotlib` (PSF-based matplotlib licence), `pillow` (MIT-CMU), `requests`
+`matplotlib` (PSF-based matplotlib licence), `requests`
 (Apache-2.0), `psutil` (BSD-3-Clause).
 
 ## Model weights (downloaded, not distributed)

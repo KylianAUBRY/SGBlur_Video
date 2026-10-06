@@ -51,8 +51,10 @@ uv run sgblur-video models download                  # SGBlur YOLO26 model, hash
 uv run sgblur-video blur my-video.mp4 blurred.mp4 --debug
 ```
 
-`blurred.debug.mp4` shows every blurred region and every sign. The HTTP API
-and `docker compose up` arrive in step 6.
+`blurred.metadata.json` holds one Panoramax annotation per traffic sign and
+`blurred.debug.mp4` shows every blurred region and every sign. Add
+`--frames-dir frames/` to get the best view of each sign as a blurred JPEG. The
+HTTP API and `docker compose up` arrive in step 6.
 
 ## Roadmap
 
@@ -62,8 +64,8 @@ and `docker compose up` arrive in step 6.
 | 2 | Design: architecture, API contract, ADRs | ✅ done |
 | 3 | Project skeleton, configuration, CI, docs structure | ✅ done |
 | 4 | Core pipeline as a CLI, with tests | ✅ done |
-| 5 | Traffic signs: deduplication, annotations, best frames | ⏳ next |
-| 6 | Asynchronous HTTP API, Docker | |
+| 5 | Traffic signs: deduplication, annotations, best frames | ✅ done |
+| 6 | Asynchronous HTTP API, Docker | ⏳ next |
 | 7 | 360° seam handling, telemetry, metadata preservation | |
 | 8 | Benchmarks (trackers, models, devices) and default tuning | |
 | 9 | Documentation review | |

@@ -15,10 +15,10 @@ uv run sgblur-video blur input.mp4 output.mp4 --max-frames 90   # quick try on t
 
 | Command | Purpose | Step |
 |---|---|---|
-| `sgblur-video blur IN OUT [--model] [--tracker] [--debug] [--keep-detections F] [--max-frames N]` | Full pipeline | ✅ 4 |
+| `sgblur-video blur IN OUT [--model] [--tracker] [--debug] [--frames-dir DIR] [--keep-detections F] [--max-frames N]` | Full pipeline; also writes `OUT.metadata.json` | ✅ 4–5 |
 | `sgblur-video detect IN --out detections.jsonl` | Pass 1 only | ✅ 4 |
-| `sgblur-video render IN detections.jsonl OUT [--debug] [--allow-partial]` | Post-processing and pass 2 | ✅ 4 |
-| `sgblur-video signs IN --out signs.json` | Sign annotations only | 5 |
+| `sgblur-video render IN detections.jsonl OUT [--debug] [--frames-dir DIR] [--allow-partial]` | Post-processing and pass 2; also writes `OUT.metadata.json` | ✅ 4–5 |
+| `sgblur-video signs IN --out signs.json [--frames-dir DIR]` | Sign annotations only (no video written) | ✅ 5 |
 | `sgblur-video benchmark --dataset DIR` | Benchmarks | 8 |
 | `sgblur-video worker` / `serve` | Job worker / API with one worker | 6 |
 | `sgblur-video models list` / `download` | Model registry | ✅ 3 / 4 |

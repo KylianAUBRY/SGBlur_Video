@@ -200,6 +200,7 @@ split into its two parts.
 
 For each `signage` track (after seam stitching):
 
+0. Sign fragments (tracks and orphans) are linked offline like faces and plates (§3.0b), so a sign detected intermittently is still one sign.
 1. Drop it if it has fewer than `SIGN_MIN_TRACK_LENGTH` (*5*) observations or a max score below `CONF_SIGN` (*0.6*, SGBlur value).
 2. **Best frame** = observation maximising `score × box area` (real detections only, never interpolated boxes); the class reported is the majority class of the track.
 3. Emit one annotation (format in [api.md](api.md#metadata)): shape = best-frame box in display coordinates, integer pixels, clipped to the frame (for a box that wraps around the seam, the larger part is kept); semantics identical to SGBlur (`osm|traffic_sign=yes`, `detection_model[…]`, `detection_confidence[…]`, string values) for both `sign` and `direction` (maintainer decision, until SGBlur defines specific tags); `video` extension object with track id, first/best/last frame and timestamp, max/mean confidence, and the GPS position at the best timestamp when telemetry provides one.
@@ -277,8 +278,10 @@ receiver), so GPS tests rely on the public `gopro/gpmf-parser` samples.
 
 ## 6. Best frames (`/frames`)
 
-When `frames=1` is requested, pass 2 saves, for each sign annotation, the
-**blurred** output frame at the best timestamp as a JPEG (quality *92*, display
+When `frames=1` (API) or `--frames-dir` (CLI) is requested, pass 2 saves, for
+each distinct best frame of the sign annotations, the **blurred** output frame
+as a JPEG (signs sharing a best frame share a picture; `frames.json` lists
+them) (quality *92*, display
 orientation, EXIF date from `creation_time + t`, GPS when available), with the
 annotation shape expressed in that JPEG's pixel coordinates. These files can be
 uploaded to today's Panoramax with `isBlurred=true` and per-file annotations
