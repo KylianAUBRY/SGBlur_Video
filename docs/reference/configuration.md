@@ -60,6 +60,8 @@ privacy note must not be changed without running the privacy benchmark
 | `BLUR_TEMPORAL_PADDING_FRAMES` | integer | `15` | Frames blurred before the first and after the last detection of a track or orphan. | Lower values expose objects at track ends. |
 | `BLUR_PADDING_GROWTH` | number | `0.05` | Per-frame growth of padded boxes, to absorb motion uncertainty. | Lower values may miss moving objects. |
 | `MAX_INTERPOLATION_GAP_S` | number | `2.0` | Longest gap inside a track that is filled by interpolation, in seconds. | Lower values leave gaps unblurred. |
+| `LINK_MAX_GAP_S` | number | `1.0` | Longest interruption, in seconds, across which detections of one object are linked offline (flickering small objects). | Lower values break objects into more pieces (more padding, not less blur). |
+| `LINK_MAX_DISTANCE` | number | `1.0` | Maximum distance, in box sizes, between where an object was heading and where it reappears. | Lower values break objects into more pieces. |
 | `SIGN_MIN_TRACK_LENGTH` | integer | `5` | Minimum number of detections for a sign track to produce an annotation. | — |
 | `SEAM_MAX_GAP_S` | number | `0.5` | Maximum time between two tracks stitched across the 360° seam, in seconds. | — |
 

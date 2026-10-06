@@ -1,5 +1,9 @@
 # Configuration reference (design)
 
+!!! note "Superseded"
+    This was the step-2 design table. The authoritative, always up-to-date
+    reference is generated from the code: [Configuration reference](../reference/configuration.md).
+
 > Status: **draft for validation (step 2)**. Values in *italics* are provisional
 > and will be tuned in step 8. Settings are read with `pydantic-settings` from
 > environment variables and an optional `.env` file, **without prefix** to stay

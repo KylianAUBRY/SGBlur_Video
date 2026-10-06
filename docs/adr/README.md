@@ -16,6 +16,7 @@ status `superseded by ADR-XXXX`.
 | [0008](0008-video-io-and-metadata-preservation.md) | Video I/O with PyAV and MP4 box post-processing | proposed |
 | [0009](0009-model-registry-and-class-policy.md) | Reuse SGBlur YOLO26 weights; registry and class policy by name | accepted (maintainer, 2026-10-06) |
 | [0010](0010-privacy-testing-strategy.md) | Privacy testing: synthetic oracle + annotated real clips | accepted (maintainer, 2026-10-06) |
+| [0011](0011-offline-linking.md) | Offline linking of detections the tracker leaves alone | accepted (step 4 measurements) |
 
 Template for new records: copy the structure of any file above (Context and
 Problem Statement, Decision Drivers, Considered Options, Decision Outcome,

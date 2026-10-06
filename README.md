@@ -47,12 +47,12 @@ Requirements: Python 3.14, [uv](https://docs.astral.sh/uv/), macOS (Apple Silico
 git clone https://github.com/KylianAUBRY/SGBlur_Video.git
 cd SGBlur_Video
 uv sync
-uv run sgblur-video --help
-uv run sgblur-video models list
+uv run sgblur-video models download                  # SGBlur YOLO26 model, hash-checked
+uv run sgblur-video blur my-video.mp4 blurred.mp4 --debug
 ```
 
-The command-line pipeline (`blur`, `detect`, `render`, `signs`) arrives in step 4,
-the HTTP API and `docker compose up` in step 6.
+`blurred.debug.mp4` shows every blurred region and every sign. The HTTP API
+and `docker compose up` arrive in step 6.
 
 ## Roadmap
 
@@ -61,8 +61,8 @@ the HTTP API and `docker compose up` in step 6.
 | 1 | Analysis of SGBlur, Panoramax and Ultralytics | ✅ done |
 | 2 | Design: architecture, API contract, ADRs | ✅ done |
 | 3 | Project skeleton, configuration, CI, docs structure | ✅ done |
-| 4 | Core pipeline as a CLI, with tests | ⏳ next |
-| 5 | Traffic signs: deduplication, annotations, best frames | |
+| 4 | Core pipeline as a CLI, with tests | ✅ done |
+| 5 | Traffic signs: deduplication, annotations, best frames | ⏳ next |
 | 6 | Asynchronous HTTP API, Docker | |
 | 7 | 360° seam handling, telemetry, metadata preservation | |
 | 8 | Benchmarks (trackers, models, devices) and default tuning | |
