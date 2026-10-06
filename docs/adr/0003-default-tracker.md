@@ -1,5 +1,5 @@
 ---
-status: proposed (provisional until the step-8 benchmark)
+status: accepted (thresholds provisional until the privacy benchmark on annotated clips)
 date: 2026-10-06
 ---
 
@@ -53,3 +53,32 @@ for comparison.
 - Good: GMC out of the box; current Ultralytics default, so best maintained.
 - Bad: thresholds are guesses until measured. Step 8 compares all trackers on the annotated clips (ADR-0010): track fragmentation, id switches, FPS and — first criterion — leakage rate after post-processing. This ADR is then updated to `accepted` or superseded.
 - Note: a single affine GMC models forward motion (zoom) and equirectangular distortion poorly; post-processing (gap filling, padding) is what guarantees privacy, the tracker only improves continuity.
+
+## Step-8 measurements (2026-10-06)
+
+Details: [benchmarks/results](https://github.com/KylianAUBRY/SGBlur_Video/blob/main/benchmarks/results/README.md).
+TrackTrack, TrackTrack without GMC, BoT-SORT and ByteTrack were replayed on the
+same YOLO26s detections of three 10 s clips (1080p pedestrians; two 8K 360°
+city scenes):
+
+- 1080p: all trackers follow ~70 % of the detections, with 26–30 blurred chains.
+- 8K 360°: all trackers follow only **2–12 %** of the detections. Small objects
+  are detected on about one frame in two and their merged boxes jump between
+  detection passes (median IoU 0.52 between consecutive detections), so new
+  tracks are dropped before they are confirmed. TrackTrack follows the most
+  (11.9 % and 2.8 % against 10.2–10.7 % and 1.9–2.2 %).
+- After offline linking ([ADR-0011](0011-offline-linking.md)) the blur plans
+  differ by less than 3 % between trackers, and sign counts by at most 2.
+- GMC costs ~15 ms per 1080p frame and ~11 ms per 8K frame (at `TRACK_WIDTH`),
+  small next to detection (0.43 s per 8K frame on Apple M4 Pro), for no
+  measurable gain on these clips.
+
+Decision: **TrackTrack stays the default**, with GMC, because it is marginally
+the best and the choice barely matters once fragments are linked offline. On
+high-resolution 360° video the tracker is not what protects privacy: offline
+linking, interpolation and padding are. The thresholds of
+`tracktrack-recall.yaml` remain provisional: the leakage rate per tracker will
+be compared on the annotated clips (`sgblur-video benchmark trackers --dataset`)
+and this section updated. Two leads for later work, not needed for privacy:
+tracking on the best-pass box instead of the cross-pass union, and a lighter
+"confirm on the next frame" rule for flickering detections.

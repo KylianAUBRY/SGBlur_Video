@@ -32,7 +32,8 @@ in `models/registry.yaml`; no model name is hard-coded anywhere else.
    `pyproject.toml`, run `uv lock`, and run the full test suite: the tracker
    configuration test and the adapter contract tests catch API changes.
 5. Run the privacy benchmark on the annotated dataset and compare with the
-   current default (`sgblur-video benchmark`, step 8).
+   current default (`sgblur-video benchmark privacy --dataset … --model <name>`,
+   see [Benchmarks](benchmarks.md)), and its speed with `sgblur-video benchmark speed`.
 6. If it becomes the default, change `MODEL_FAMILY`'s default and record the
    decision in a new ADR.
 

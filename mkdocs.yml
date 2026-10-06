@@ -82,6 +82,7 @@ nav:
       - Annotations and Panoramax: concepts/annotations.md
   - Guides:
       - Models and new YOLO versions: guides/models.md
+      - Benchmarks and the privacy dataset: guides/benchmarks.md
       - FAQ and troubleshooting: guides/troubleshooting.md
   - Reference:
       - Configuration: reference/configuration.md

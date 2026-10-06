@@ -43,3 +43,13 @@ Reference generated from the docstrings of the package.
 ::: sgblur_video.jobs.worker
 
 ::: sgblur_video.jobs.runner
+
+::: sgblur_video.bench.dataset
+
+::: sgblur_video.bench.cvat
+
+::: sgblur_video.bench.metrics
+
+::: sgblur_video.bench.cache
+
+::: sgblur_video.bench.runs

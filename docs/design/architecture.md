@@ -44,7 +44,7 @@ flowchart LR
 | Worker | `sgblur_video.jobs.worker` | Claims queued jobs and runs each one in a fresh child process: analysis, post-processing, rendering, remux, cleanup. |
 | Detect API | `sgblur_video.api.detect_api` | Optional remote analysis service: video in, `detections.jsonl` out (streamed). Same code as the in-process path. |
 | Job store | `sgblur_video.jobs.store` | SQLite database (WAL mode) holding job rows, progress and timings. No video data. |
-| CLI | `sgblur_video.cli` | `blur`, `detect`, `render`, `signs`, `benchmark`, `worker`, `serve`. Uses the same pipeline without any server. |
+| CLI | `sgblur_video.cli` | `blur`, `detect`, `render`, `signs`, `worker`, `serve`, `annotate`, `benchmark`. Uses the same pipeline without any server. |
 
 ### Deployment modes
 
@@ -210,6 +210,8 @@ src/sgblur_video/
 ├── video360/     wrap.py (wrap-around geometry across the 0°/360° seam)
 ├── telemetry/    gpmf.py (KLV parser), gps.py (GPS track → position at timestamp)
 ├── jobs/         store.py, worker.py, janitor.py
+├── bench/        dataset.py, cvat.py, clips.py, annotate.py (privacy dataset),
+│                 metrics.py, cache.py, runs.py, report.py (benchmarks)
 ├── models.py     registry loading, download, auto-selection
 ├── config.py
 └── cli.py

@@ -1,0 +1,172 @@
+{
+  "kind": "speed",
+  "generated_at": "2026-10-06T15:42:59+00:00",
+  "sgblur_video": "0.1.0.dev0",
+  "video": {
+    "width": 7680,
+    "height": 3840,
+    "projection": "equirectangular",
+    "codec": "hevc",
+    "fps": 30.0,
+    "frames": 2707
+  },
+  "frames": 8,
+  "rows": [
+    {
+      "model": "yolo26s",
+      "device": "mps",
+      "profile": "fast",
+      "passes": 2,
+      "s_per_frame": 0.056,
+      "fps": 17.88,
+      "detections_per_frame": {
+        "face": 1.38,
+        "plate": 1.0,
+        "sign": 0.5
+      }
+    },
+    {
+      "model": "yolo26s",
+      "device": "mps",
+      "profile": "standard",
+      "passes": 4,
+      "s_per_frame": 0.433,
+      "fps": 2.31,
+      "detections_per_frame": {
+        "face": 4.5,
+        "plate": 5.12,
+        "sign": 2.88
+      }
+    },
+    {
+      "model": "yolo26s",
+      "device": "mps",
+      "profile": "thorough",
+      "passes": 4,
+      "s_per_frame": 1.405,
+      "fps": 0.71,
+      "detections_per_frame": {
+        "face": 4.88,
+        "plate": 5.0,
+        "sign": 3.0
+      }
+    },
+    {
+      "model": "yolo26s",
+      "device": "cpu",
+      "profile": "fast",
+      "passes": 2,
+      "s_per_frame": 0.192,
+      "fps": 5.19,
+      "detections_per_frame": {
+        "face": 1.38,
+        "plate": 1.0,
+        "sign": 0.5
+      }
+    },
+    {
+      "model": "yolo26s",
+      "device": "cpu",
+      "profile": "standard",
+      "passes": 4,
+      "s_per_frame": 1.883,
+      "fps": 0.53,
+      "detections_per_frame": {
+        "face": 4.5,
+        "plate": 5.12,
+        "sign": 2.88
+      }
+    },
+    {
+      "model": "yolo26s",
+      "device": "cpu",
+      "profile": "thorough",
+      "passes": 4,
+      "s_per_frame": 7.113,
+      "fps": 0.14,
+      "detections_per_frame": {
+        "face": 4.88,
+        "plate": 5.0,
+        "sign": 3.0
+      }
+    },
+    {
+      "model": "yolo11s",
+      "device": "mps",
+      "profile": "fast",
+      "passes": 2,
+      "s_per_frame": 0.055,
+      "fps": 18.29,
+      "detections_per_frame": {
+        "face": 0.5,
+        "plate": 1.0,
+        "sign": 1.75
+      }
+    },
+    {
+      "model": "yolo11s",
+      "device": "mps",
+      "profile": "standard",
+      "passes": 4,
+      "s_per_frame": 0.399,
+      "fps": 2.51,
+      "detections_per_frame": {
+        "face": 2.12,
+        "plate": 5.0,
+        "sign": 2.62
+      }
+    },
+    {
+      "model": "yolo11s",
+      "device": "mps",
+      "profile": "thorough",
+      "passes": 4,
+      "s_per_frame": 38.16,
+      "fps": 0.03,
+      "detections_per_frame": {
+        "face": 2.12,
+        "plate": 5.0,
+        "sign": 2.12
+      }
+    },
+    {
+      "model": "yolo11s",
+      "device": "cpu",
+      "profile": "fast",
+      "passes": 2,
+      "s_per_frame": 0.281,
+      "fps": 3.55,
+      "detections_per_frame": {
+        "face": 0.5,
+        "plate": 1.0,
+        "sign": 1.75
+      }
+    },
+    {
+      "model": "yolo11s",
+      "device": "cpu",
+      "profile": "standard",
+      "passes": 4,
+      "s_per_frame": 1.712,
+      "fps": 0.58,
+      "detections_per_frame": {
+        "face": 2.12,
+        "plate": 5.0,
+        "sign": 2.62
+      }
+    },
+    {
+      "model": "yolo11s",
+      "device": "cpu",
+      "profile": "thorough",
+      "passes": 4,
+      "s_per_frame": 5.751,
+      "fps": 0.17,
+      "detections_per_frame": {
+        "face": 2.12,
+        "plate": 5.0,
+        "sign": 2.12
+      }
+    }
+  ]
+}
