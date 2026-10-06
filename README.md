@@ -76,8 +76,8 @@ See [HTTP API](docs/usage/api.md).
 | 4 | Core pipeline as a CLI, with tests | ✅ done |
 | 5 | Traffic signs: deduplication, annotations, best frames | ✅ done |
 | 6 | Asynchronous HTTP API, Docker | ✅ done |
-| 7 | 360° seam handling, telemetry, metadata preservation | ⏳ next |
-| 8 | Benchmarks (trackers, models, devices) and default tuning | |
+| 7 | 360° seam handling, telemetry, metadata preservation | ✅ done |
+| 8 | Benchmarks (trackers, models, devices) and default tuning | ⏳ next |
 | 9 | Documentation review | |
 
 v1 is built during a time-limited hackathon. Deliberately left for **v2**:

@@ -22,7 +22,18 @@ from sgblur_video.core.postprocess import build_blur_plan
 from sgblur_video.core.probe import probe
 from sgblur_video.core.render import render
 from sgblur_video.semantics.annotations import build_annotations, find_sign_tracks
-from tests.privacy.synthetic import FRAMES, FakeDetector, scenario, texture_energy, write_video
+from tests.privacy.synthetic import (
+    FRAMES,
+    HEIGHT_360,
+    WIDTH_360,
+    FakeDetector,
+    WrappedFakeDetector,
+    scenario,
+    scenario_360,
+    texture_energy,
+    wrapped_energy,
+    write_video,
+)
 
 pytestmark = pytest.mark.privacy
 
@@ -146,7 +157,50 @@ def test_signs_are_annotated_once_and_best_frames_are_blurred(tmp_path: Path, re
     assert index.exists()
     assert len(writer.written) == len({a.video.best_frame for a in annotations})
     for entry in writer.written:
-        picture = np.asarray(Image.open(tmp_path / "frames" / entry["file"]).convert("L"))
+        with Image.open(tmp_path / "frames" / entry["file"]) as image:
+            picture = np.asarray(image.convert("L"))
         for obj in objects:
             if obj.cls in ("face", "plate") and entry["frame"] in obj.visible:
                 assert texture_energy(picture, obj.box(entry["frame"])) < BLURRED_MAX_ENERGY
+
+
+def test_objects_crossing_the_360_seam_are_blurred_on_both_sides(tmp_path: Path, repo_root: Path) -> None:
+    """A face crossing the 0°/360° seam (missed while crossing) and a plate straddling it stay blurred."""
+    objects = scenario_360()
+    source = tmp_path / "equirect.mp4"
+    write_video(source, objects, width=WIDTH_360, height=HEIGHT_360, wrap=True)
+    settings = Settings(
+        tracker_config=repo_root / "configs" / "trackers" / "tracktrack-recall.yaml", encoder="libx264"
+    )
+    info = probe(source, settings)
+    assert info.projection == "equirectangular"
+    detections_path = tmp_path / "detections.jsonl"
+    analyze(info, WrappedFakeDetector(objects, WIDTH_360), settings, detections_path, model={"name": "fake"})
+    detections = read_detections(detections_path)
+    plan = build_blur_plan(
+        detections, settings, frame_size=(info.width, info.height), fps=info.fps, wrap_width=info.width
+    )
+    # The face is one chain across the seam, not two.
+    assert plan.stats["chains_face"] == 1
+    output = tmp_path / "blurred.mp4"
+    render(info, plan, output, settings)
+    original, blurred = _luma_frames(source), _luma_frames(output)
+    leaked = []
+    for obj in objects:
+        for frame in obj.visible:
+            assert wrapped_energy(original[frame], obj.box(frame), WIDTH_360) > SHARP_MIN_ENERGY
+            energy = wrapped_energy(blurred[frame], obj.box(frame), WIDTH_360)
+            if energy > BLURRED_MAX_ENERGY:
+                leaked.append((obj.cls, frame, round(energy, 1)))
+    assert leaked == []
+
+    # Negative control: the same detections without seam handling leak.
+    flat_plan = build_blur_plan(detections, settings, frame_size=(info.width, info.height), fps=info.fps)
+    render(info, flat_plan, output, settings)
+    flat = _luma_frames(output)
+    flat_leaks = sum(
+        wrapped_energy(flat[frame], obj.box(frame), WIDTH_360) > BLURRED_MAX_ENERGY
+        for obj in objects
+        for frame in obj.visible
+    )
+    assert flat_leaks > 10

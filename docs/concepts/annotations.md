@@ -52,8 +52,8 @@ uncertain.
 
 Panoramax annotations describe parts of a *picture*. For video, each annotation
 also carries a `video` object (track id, first/best/last frame and timestamp,
-number of detections, maximum and mean confidence, and — from step 7 — the GPS
-position at the best frame). The current Panoramax backend silently ignores
+number of detections, maximum and mean confidence, and the GPS position at the
+best frame when the video has GoPro GPS telemetry). The current Panoramax backend silently ignores
 unknown annotation fields, so the extension is harmless but not stored; it is
 meant for the video support being discussed upstream
 ([panoramax/server/api#369](https://gitlab.com/panoramax/server/api/-/work_items/369)).
@@ -82,9 +82,10 @@ view, plus `frames.json`:
 
 - Each JPEG is the **blurred** output frame: faces and plates on it are blurred.
 - Several signs sharing a best frame share one picture (`annotation_indices`).
-- EXIF holds the capture date (container `creation_time` + timestamp); GPS is
-  added from video telemetry in step 7. Panoramax needs both to accept a
-  picture, so frames from videos without GPS cannot be uploaded as they are.
+- EXIF holds the capture date (container `creation_time` + timestamp) and,
+  when the video carries GoPro GPS telemetry, the interpolated position.
+  Panoramax needs both to accept a picture, so frames from videos without GPS
+  (e.g. GoPro HERO12, Kandao Q360 exports) cannot be uploaded as they are.
 - The pictures can be uploaded with `isBlurred=true` (no second blurring) and
   their annotations (Panoramax API ≥ 2.16).
 

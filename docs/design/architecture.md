@@ -207,8 +207,8 @@ src/sgblur_video/
 │                 render.py, encode.py, remux.py, mp4boxes.py, pipeline.py
 ├── privacy/      blur.py (methods & shapes), keep.py (encrypted regions), cleanup.py
 ├── semantics/    annotations.py (tracks → Panoramax annotations)
-├── video360/     projection.py (detection), padding.py, seam.py, spherical.py
-├── telemetry/    gpmf.py, gps.py (GPS track → position at timestamp)
+├── video360/     wrap.py (wrap-around geometry across the 0°/360° seam)
+├── telemetry/    gpmf.py (KLV parser), gps.py (GPS track → position at timestamp)
 ├── jobs/         store.py, worker.py, janitor.py
 ├── models.py     registry loading, download, auto-selection
 ├── config.py

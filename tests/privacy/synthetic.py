@@ -20,6 +20,7 @@ import numpy.typing as npt
 
 from sgblur_video.core.detect import Detection, DetectionPass
 from sgblur_video.core.geometry import Box
+from sgblur_video.video360.wrap import normalize, split
 
 WIDTH, HEIGHT, FRAMES, FPS = 640, 360, 60, 30
 
@@ -106,9 +107,9 @@ def scenario() -> list[SyntheticObject]:
     return [walking_face, flickering_plate, fast_small_face, sign, flickering_sign, false_sign]
 
 
-def _background() -> npt.NDArray[np.uint8]:
-    yy, xx = np.mgrid[0:HEIGHT, 0:WIDTH]
-    gray = (60 + 80 * xx / WIDTH + 40 * yy / HEIGHT).astype(np.uint8)
+def _background(width: int = WIDTH, height: int = HEIGHT) -> npt.NDArray[np.uint8]:
+    yy, xx = np.mgrid[0:height, 0:width]
+    gray = (60 + 40 * yy / height + 0 * xx).astype(np.uint8)
     return np.dstack([gray, gray, gray])
 
 
@@ -118,28 +119,42 @@ def _texture(width: int, height: int) -> npt.NDArray[np.uint8]:
     return np.dstack([pattern, pattern, pattern])
 
 
-def render_frame(objects: Sequence[SyntheticObject], frame: int) -> npt.NDArray[np.uint8]:
-    """RGB image of ``frame``."""
-    image = _background()
+def render_frame(
+    objects: Sequence[SyntheticObject],
+    frame: int,
+    *,
+    width: int = WIDTH,
+    height: int = HEIGHT,
+    wrap: bool = False,
+) -> npt.NDArray[np.uint8]:
+    """RGB image of ``frame`` (objects crossing the edge wrap around when ``wrap``, as in 360° video)."""
+    image = _background(width, height)
     for obj in objects:
         if frame not in obj.visible:
             continue
-        x1, y1, x2, y2 = (round(v) for v in obj.box(frame))
-        image[max(0, y1) : y2, max(0, x1) : x2] = _texture(x2 - max(0, x1), y2 - max(0, y1))
+        for part in split(obj.box(frame), width) if wrap else [obj.box(frame)]:
+            x1, y1, x2, y2 = (round(v) for v in part)
+            image[max(0, y1) : y2, max(0, x1) : x2] = _texture(x2 - max(0, x1), y2 - max(0, y1))
     return image
 
 
 def write_video(
-    path: Path, objects: Sequence[SyntheticObject], *, codec: str = "libx264", pix_fmt: str = "yuv420p"
+    path: Path,
+    objects: Sequence[SyntheticObject],
+    *,
+    codec: str = "libx264",
+    pix_fmt: str = "yuv420p",
+    width: int = WIDTH,
+    height: int = HEIGHT,
+    wrap: bool = False,
 ) -> None:
     """Encode the scenario at high quality (the texture must survive compression)."""
     with av.open(str(path), "w") as container:
         stream = container.add_stream(codec, rate=FPS, options={"crf": "12", "preset": "fast"})
-        stream.width, stream.height, stream.pix_fmt = WIDTH, HEIGHT, pix_fmt
+        stream.width, stream.height, stream.pix_fmt = width, height, pix_fmt
         for frame_index in range(FRAMES):
-            frame = av.VideoFrame.from_ndarray(render_frame(objects, frame_index), format="rgb24").reformat(
-                format=pix_fmt
-            )
+            image = render_frame(objects, frame_index, width=width, height=height, wrap=wrap)
+            frame = av.VideoFrame.from_ndarray(image, format="rgb24").reformat(format=pix_fmt)
             frame.pts = frame_index
             container.mux(stream.encode(frame))
         container.mux(stream.encode(None))
@@ -196,3 +211,49 @@ def texture_energy(luma: npt.NDArray[np.uint8], box: Box) -> float:
     if patch.shape[1] < 2 or patch.shape[0] < 1:
         return 0.0
     return float(np.abs(np.diff(patch, axis=1)).mean())
+
+
+WIDTH_360, HEIGHT_360 = 1280, 640
+
+
+def scenario_360() -> list[SyntheticObject]:
+    """Objects crossing the 0°/360° seam of a 1280×640 equirectangular video."""
+    crossing_face = SyntheticObject(
+        "face",
+        (48, 48),
+        lambda f: (1100 + 8 * f, 200),  # crosses x = 1280 around frame 18
+        visible=range(0, 45),
+        detected=set(range(0, 45)) - set(range(14, 22)),  # missed exactly while crossing
+        score=lambda _f: 0.6,
+    )
+    straddling_plate = SyntheticObject(
+        "plate",
+        (64, 24),
+        lambda _f: (1250, 400),  # always cut in two by the seam
+        visible=range(FRAMES),
+        detected=set(range(0, FRAMES, 2)),
+        score=lambda _f: 0.4,
+    )
+    return [crossing_face, straddling_plate]
+
+
+class WrappedFakeDetector(FakeDetector):
+    """Fake detector reporting boxes like the real pipeline does on 360° video (``0 <= x1 < width``)."""
+
+    def __init__(self, objects: Sequence[SyntheticObject], width: int) -> None:
+        super().__init__(objects)
+        self._width = width
+
+    def detect(
+        self, image: npt.NDArray[np.uint8], plan: Sequence[DetectionPass], frame_index: int
+    ) -> list[Detection]:
+        """Scripted detections, normalised across the seam."""
+        detections = super().detect(image, plan, frame_index)
+        for detection in detections:
+            detection.box = normalize(detection.box, self._width)
+        return detections
+
+
+def wrapped_energy(luma: npt.NDArray[np.uint8], box: Box, width: int) -> float:
+    """Highest texture energy among the visible parts of a box that may cross the seam."""
+    return max(texture_energy(luma, part) for part in split(box, width) if part[2] - part[0] >= 4)

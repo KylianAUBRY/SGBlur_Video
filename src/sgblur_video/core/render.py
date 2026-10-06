@@ -26,9 +26,11 @@ from sgblur_video.config import Settings
 from sgblur_video.core.debug import DEBUG_MAX_WIDTH, DebugOverlay
 from sgblur_video.core.decode import to_bgr
 from sgblur_video.core.encode import EncoderChoice, choose_encoder
+from sgblur_video.core.geometry import Box
 from sgblur_video.core.postprocess import BlurPlan, BlurShape
 from sgblur_video.core.probe import VideoInfo
 from sgblur_video.privacy.blur import blur_frame
+from sgblur_video.video360.wrap import copies
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +68,11 @@ class RenderStats:
     copied_streams: list[str] = field(default_factory=list)
     dropped_streams: list[str] = field(default_factory=list)
     elapsed_s: float = 0.0
+
+
+def _wrapped(box: Box, wrap_width: int | None) -> list[Box]:
+    """The box, plus its copies one turn left and right on 360° video (the seam is blurred on both sides)."""
+    return copies(box, wrap_width) if wrap_width else [box]
 
 
 def _stream_label(stream: av.stream.Stream) -> str:
@@ -177,7 +184,7 @@ def render(
             if shapes:
                 frame = blur_frame(
                     frame,
-                    [(s.kind, s.box) for s in shapes],
+                    [(s.kind, box) for s in shapes for box in _wrapped(s.box, plan.wrap_width)],
                     settings.blur_method,
                     cells=settings.pixelate_cells,
                     rng=rng,

@@ -22,6 +22,7 @@ import numpy.typing as npt
 
 from sgblur_video.config import ClassAction, DetectProfile
 from sgblur_video.core.geometry import Box, iomin, iou, translate, union_box
+from sgblur_video.video360.wrap import normalize, unwrap_towards
 
 logger = logging.getLogger(__name__)
 
@@ -38,12 +39,16 @@ class DetectionPass:
         kind: ``global`` (full frame) or ``tile`` (crop at native resolution).
         imgsz: Ultralytics inference size.
         region: ``(x1, y1, x2, y2)`` integer crop in frame pixels for tiles, ``None`` for global passes.
+            For 360° video, ``x1`` may be negative and ``x2`` may exceed the width: the crop wraps
+            around the 0°/360° seam.
+        pad: Circular padding (pixels) added on both sides of a global pass input (360° video).
     """
 
     id: str
     kind: Literal["global", "tile"]
     imgsz: int
     region: tuple[int, int, int, int] | None = None
+    pad: int = 0
 
 
 @dataclass
@@ -101,6 +106,7 @@ def build_plan(
     projection: Literal["flat", "equirectangular"],
     profile: DetectProfile,
     tile_trigger_width: int,
+    equirect_pad_ratio: float = 0.0,
 ) -> list[DetectionPass]:
     """Build the detection plan for a video.
 
@@ -110,6 +116,8 @@ def build_plan(
         projection: ``flat`` or ``equirectangular``.
         profile: ``fast``, ``standard`` or ``thorough``.
         tile_trigger_width: Long side from which tiles are added.
+        equirect_pad_ratio: Circular padding on each side of 360° frames, as a fraction of the width,
+            so that objects straddling the seam are seen whole at least once.
 
     Returns:
         The passes, global ones first.
@@ -120,20 +128,22 @@ def build_plan(
         >>> " ".join(p.id for p in plan)
         'g1024 g1920'
     """
-    long_side = max(width, height)
-    plan = [DetectionPass("g1024", "global", min(1024, _round32(long_side)))]
+    pad = round(width * equirect_pad_ratio) if projection == "equirectangular" else 0
+    long_side = max(width + 2 * pad, height)
+    plan = [DetectionPass("g1024", "global", min(1024, _round32(long_side)), pad=pad)]
     if long_side > 1024:
         size = min(2048, _round32(long_side))
-        plan.append(DetectionPass(f"g{size}", "global", size))
-    if profile is DetectProfile.FAST or long_side < tile_trigger_width:
+        plan.append(DetectionPass(f"g{size}", "global", size, pad=pad))
+    if profile is DetectProfile.FAST or max(width, height) < tile_trigger_width:
         return plan
     if projection == "equirectangular":
         # SGBlur layout: two halves of the middle band (full height with `thorough`),
-        # overlapping by 1/16 of the width around the middle split line.
+        # overlapping by 1/16 of the width around the middle split line, and extended
+        # across the 0°/360° seam by the circular padding.
         top, bottom = (0, height) if profile is DetectProfile.THOROUGH else (height // 4, height * 3 // 4)
         overlap = width // 16
         half = width // 2
-        for tile_id, (x1, x2) in (("tL", (0, half + overlap)), ("tR", (half - overlap, width))):
+        for tile_id, (x1, x2) in (("tL", (-pad, half + overlap)), ("tR", (half - overlap, width + pad))):
             imgsz = min(4096, _round32(max(x2 - x1, bottom - top)))
             plan.append(DetectionPass(tile_id, "tile", imgsz, (x1, top, x2, bottom)))
         return plan
@@ -171,6 +181,7 @@ def merge_detections(
     *,
     iou_threshold: float = 0.5,
     iomin_threshold: float = 0.8,
+    wrap_width: int | None = None,
 ) -> list[Detection]:
     """Merge duplicate boxes from several passes, per class group.
 
@@ -185,6 +196,8 @@ def merge_detections(
         policy: Class policy (classes absent from it are dropped).
         iou_threshold: IoU above which two boxes are duplicates.
         iomin_threshold: Intersection over the smaller area above which two boxes are duplicates.
+        wrap_width: Frame width of a 360° video: boxes are compared across the 0°/360° seam and
+            returned with ``0 <= x1 < width``.
 
     Returns:
         Merged detections, best score first.
@@ -193,19 +206,23 @@ def merge_detections(
     clusters: list[tuple[str, Detection, list[Box]]] = []
     for det in sorted((d for d in raw if d.cls in groups), key=lambda d: d.score, reverse=True):
         group = groups[det.cls]
+        box = normalize(det.box, wrap_width) if wrap_width else det.box
         for cluster_group, best, members in clusters:
+            candidate = unwrap_towards(box, members[0], wrap_width) if wrap_width else box
             if cluster_group == group and any(
-                iou(det.box, m) >= iou_threshold or iomin(det.box, m) >= iomin_threshold for m in members
+                iou(candidate, m) >= iou_threshold or iomin(candidate, m) >= iomin_threshold for m in members
             ):
-                members.append(det.box)
+                members.append(candidate)
                 best.passes.extend(p for p in det.passes if p not in best.passes)
                 break
         else:
-            clusters.append((group, Detection(det.cls, det.score, det.box, list(det.passes)), [det.box]))
+            clusters.append((group, Detection(det.cls, det.score, box, list(det.passes)), [box]))
     merged = []
     for _group, best, members in clusters:
         if policy[best.cls] is ClassAction.BLUR:
             best.box = union_box(members)
+        if wrap_width:
+            best.box = normalize(best.box, wrap_width)
         merged.append(best)
     return merged
 
@@ -274,22 +291,41 @@ class YoloDetector:
         tiles_by_size: dict[int, list[DetectionPass]] = {}
         for detection_pass in plan:
             if detection_pass.kind == "global":
-                for box, score, cls_id in self._predict([image], detection_pass.imgsz)[0]:
-                    detections.append(Detection(self._names[cls_id], score, box, [detection_pass.id]))
+                pad = detection_pass.pad
+                source = pad_circular(image, pad) if pad else image
+                for box, score, cls_id in self._predict([source], detection_pass.imgsz)[0]:
+                    shifted = translate(box, -pad, 0) if pad else box
+                    detections.append(Detection(self._names[cls_id], score, shifted, [detection_pass.id]))
             else:
                 tiles_by_size.setdefault(detection_pass.imgsz, []).append(detection_pass)
         for imgsz, tiles in tiles_by_size.items():
             crops = []
             for tile in tiles:
                 assert tile.region is not None  # noqa: S101 - tiles always have a region
-                x1, y1, x2, y2 = tile.region
-                crops.append(np.ascontiguousarray(image[y1:y2, x1:x2]))
+                crops.append(crop_wrapped(image, tile.region))
             for tile, results in zip(tiles, self._predict(crops, imgsz), strict=True):
                 assert tile.region is not None  # noqa: S101
                 for box, score, cls_id in results:
                     shifted = translate(box, tile.region[0], tile.region[1])
                     detections.append(Detection(self._names[cls_id], score, shifted, [tile.id]))
         return detections
+
+
+def pad_circular(image: npt.NDArray[np.uint8], pad: int) -> npt.NDArray[np.uint8]:
+    """Add ``pad`` columns on each side, copied from the opposite edge (360° wrap-around)."""
+    padded: npt.NDArray[np.uint8] = np.concatenate([image[:, -pad:], image, image[:, :pad]], axis=1)
+    return padded
+
+
+def crop_wrapped(image: npt.NDArray[np.uint8], region: tuple[int, int, int, int]) -> npt.NDArray[np.uint8]:
+    """Crop a region whose horizontal range may cross the frame edges (wrapping around)."""
+    x1, y1, x2, y2 = region
+    width = image.shape[1]
+    if x1 >= 0 and x2 <= width:
+        return np.ascontiguousarray(image[y1:y2, x1:x2])
+    columns = np.arange(x1, x2) % width
+    cropped: npt.NDArray[np.uint8] = np.ascontiguousarray(image[y1:y2][:, columns])
+    return cropped
 
 
 def unrotate_box(box: Box, rotation: int, coded_width: int, coded_height: int) -> Box:

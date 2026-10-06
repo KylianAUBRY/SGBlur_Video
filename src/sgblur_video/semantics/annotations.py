@@ -36,6 +36,8 @@ from sgblur_video.core.detect import class_groups, rotate_box
 from sgblur_video.core.detections_io import Detections
 from sgblur_video.core.geometry import area, clip
 from sgblur_video.core.postprocess import Observation, fragments_from_detections, link_fragments
+from sgblur_video.telemetry.gps import GpsTrack
+from sgblur_video.video360.wrap import split
 
 TRAFFIC_SIGN_KEY = "osm|traffic_sign"
 TRAFFIC_SIGN_VALUE = "yes"
@@ -124,13 +126,16 @@ class SignTrack:
         return sum(o.score for o in self.observations) / len(self.observations)
 
 
-def find_sign_tracks(detections: Detections, settings: Settings, *, fps: float) -> list[SignTrack]:
+def find_sign_tracks(
+    detections: Detections, settings: Settings, *, fps: float, wrap_width: int | None = None
+) -> list[SignTrack]:
     """Deduplicate sign detections into physical signs.
 
     Args:
         detections: Content of ``detections.jsonl``.
         settings: ``CONF_SIGN``, ``SIGN_MIN_TRACK_LENGTH`` and linking settings.
         fps: Average frame rate (converts ``LINK_MAX_GAP_S`` to frames).
+        wrap_width: Frame width of a 360° video (a sign crossing the seam stays one sign).
 
     Returns:
         Kept sign tracks, ordered by first appearance.
@@ -138,9 +143,10 @@ def find_sign_tracks(detections: Detections, settings: Settings, *, fps: float) 
     annotate = settings.classes_with(ClassAction.ANNOTATE)
     groups = {name: group for name, group in class_groups(settings.class_policy).items() if name in annotate}
     chains = link_fragments(
-        fragments_from_detections(detections, groups),
+        fragments_from_detections(detections, groups, wrap_width=wrap_width),
         max_gap=max(1, round(settings.link_max_gap_s * fps)),
         max_distance=settings.link_max_distance,
+        wrap_width=wrap_width,
     )
     tracks = []
     for chain in chains:
@@ -157,7 +163,7 @@ def find_sign_tracks(detections: Detections, settings: Settings, *, fps: float) 
 
 
 def display_shape(
-    track: SignTrack, *, frame_size: tuple[int, int], rotation: int
+    track: SignTrack, *, frame_size: tuple[int, int], rotation: int, wrap: bool = False
 ) -> tuple[int, int, int, int]:
     """Integer bbox of the best detection in display orientation, inside the frame.
 
@@ -165,12 +171,17 @@ def display_shape(
         track: Sign track.
         frame_size: Coded frame ``(width, height)``.
         rotation: Display rotation of the video in degrees.
+        wrap: 360° video: a box crossing the 0°/360° seam is reduced to its larger visible part
+            (Panoramax shapes cannot wrap around).
 
     Returns:
         ``(minx, miny, maxx, maxy)`` with ``minx < maxx`` and ``miny < maxy`` when possible.
     """
     width, height = frame_size
-    box = rotate_box(track.best.box, rotation, width, height)
+    best = track.best.box
+    if wrap:
+        best = max(split(best, width), key=lambda part: part[2] - part[0])
+    box = rotate_box(best, rotation, width, height)
     turns = (round(rotation / 90) % 2) if rotation else 0
     display_w, display_h = (height, width) if turns else (width, height)
     x1, y1, x2, y2 = clip(box, display_w, display_h)
@@ -189,8 +200,10 @@ def to_annotation(
     *,
     frame_size: tuple[int, int],
     rotation: int,
+    wrap: bool = False,
+    gps: GpsTrack | None = None,
 ) -> Annotation:
-    """Build the Panoramax annotation of one sign track."""
+    """Build the Panoramax annotation of one sign track (with its GPS position when known)."""
     times = detections.frames
     tag = model_tag(settings, detections.header.model)
     semantics = [
@@ -211,10 +224,23 @@ def to_annotation(
         observations=len(track.observations),
         confidence_max=round(track.confidence_max, 3),
         confidence_mean=round(track.confidence_mean, 3),
+        position=_position(gps, times[track.best.frame].time),
     )
     return Annotation(
-        shape=display_shape(track, frame_size=frame_size, rotation=rotation), semantics=semantics, video=video
+        shape=display_shape(track, frame_size=frame_size, rotation=rotation, wrap=wrap),
+        semantics=semantics,
+        video=video,
     )
+
+
+def _position(gps: GpsTrack | None, timestamp: float) -> Position | None:
+    """GPS position at a timestamp, if the video has a usable GPS track."""
+    if gps is None:
+        return None
+    fix = gps.position_at(timestamp)
+    if fix is None:
+        return None
+    return Position(lat=round(fix.lat, 7), lon=round(fix.lon, 7), alt=round(fix.alt, 1), source=gps.source)
 
 
 def build_annotations(
@@ -224,9 +250,14 @@ def build_annotations(
     *,
     frame_size: tuple[int, int],
     rotation: int,
+    wrap: bool = False,
+    gps: GpsTrack | None = None,
 ) -> list[Annotation]:
     """Annotations of every kept sign track, in order of appearance."""
-    return [to_annotation(t, detections, settings, frame_size=frame_size, rotation=rotation) for t in tracks]
+    return [
+        to_annotation(t, detections, settings, frame_size=frame_size, rotation=rotation, wrap=wrap, gps=gps)
+        for t in tracks
+    ]
 
 
 def dump_metadata(metadata: Metadata) -> dict[str, Any]:

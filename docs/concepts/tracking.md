@@ -100,7 +100,9 @@ step 5).
   view, so it can blur a few frames of whatever lies on that path — sometimes
   part of a sign. This over-blurring is accepted by design (privacy first); the
   sign itself is still annotated from its other frames.
-- The 0°/360° seam of equirectangular videos is handled in step 7.
+- On 360° video, objects crossing the 0°/360° seam are followed around the
+  circle and blurred on both edges; padding near the poles relies on the
+  `thorough` detection profile for objects above or below the middle band.
 
 ## Checking it on your videos
 
