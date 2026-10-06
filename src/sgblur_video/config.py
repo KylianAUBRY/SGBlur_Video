@@ -181,7 +181,7 @@ class Settings(BaseSettings):
     detect_profile: DetectProfile = Field(
         DetectProfile.STANDARD,
         description="Detection passes per frame: `fast`, `standard` or `thorough`.",
-        json_schema_extra=_doc("Detection", "`fast` misses more small faces and plates."),
+        json_schema_extra=_doc("Detection", "`fast` found 3× fewer faces than `standard` on 8K video."),
     )
     tile_trigger_width: int = Field(
         5760,

@@ -3,9 +3,6 @@
 The CLI runs the same pipeline as the HTTP service, without any server. Debug
 outputs (annotated videos) are **only** available here, never through the API.
 
-Commands marked "planned" print a message and exit with code 2 until the step
-of the roadmap that implements them (see ``docs/research/step-1-analysis.md``).
-
 Example:
     ```console
     $ sgblur-video blur input.mp4 output.mp4 --model yolo26s --debug
@@ -18,7 +15,7 @@ import sys
 import tempfile
 import time
 from pathlib import Path
-from typing import Annotated, NoReturn
+from typing import Annotated, Any, NoReturn
 
 import typer
 
@@ -34,8 +31,10 @@ app = typer.Typer(
 )
 models_app = typer.Typer(help="Inspect and download detection models.", no_args_is_help=True)
 annotate_app = typer.Typer(help="Build the manually annotated privacy dataset.", no_args_is_help=True)
+benchmark_app = typer.Typer(help="Measure privacy, tracking and speed.", no_args_is_help=True)
 app.add_typer(models_app, name="models")
 app.add_typer(annotate_app, name="annotate")
+app.add_typer(benchmark_app, name="benchmark")
 
 InputVideo = Annotated[Path, typer.Argument(exists=True, dir_okay=False, help="Input video (MP4 or MOV).")]
 OutputVideo = Annotated[Path, typer.Argument(dir_okay=False, help="Output video path.")]
@@ -45,19 +44,6 @@ ModelOption = Annotated[
 TrackerOption = Annotated[
     Path | None, typer.Option("--tracker", exists=True, dir_okay=False, help="Tracker YAML configuration.")
 ]
-
-
-def _planned(step: str) -> NoReturn:
-    """Exit with a clear message for a command that is not implemented yet.
-
-    Args:
-        step: Roadmap step that will implement the command.
-
-    Raises:
-        typer.Exit: Always, with code 2.
-    """
-    typer.echo(f"Not implemented yet: planned for {step} of the roadmap.", err=True)
-    raise typer.Exit(code=2)
 
 
 FramesDirOption = Annotated[
@@ -111,12 +97,23 @@ def _fail(exc: Exception) -> NoReturn:
     raise typer.Exit(code=1) from exc
 
 
-def _expected_errors() -> tuple[type[Exception], ...]:
-    """Errors reported to the user as messages rather than tracebacks."""
+def _expected_errors(*extra: type[Exception]) -> tuple[type[Exception], ...]:
+    """Errors reported to the user as messages rather than tracebacks (plus ``extra``)."""
+    from sgblur_video.bench.clips import ClipError
+    from sgblur_video.bench.dataset import DatasetError
     from sgblur_video.core.detections_io import DetectionsFormatError
     from sgblur_video.core.probe import UnsupportedVideoError
 
-    return (UnsupportedVideoError, DetectionsFormatError, RegistryError, WeightsError, ClassPolicyError)
+    return (
+        UnsupportedVideoError,
+        DetectionsFormatError,
+        RegistryError,
+        WeightsError,
+        ClassPolicyError,
+        DatasetError,
+        ClipError,
+        *extra,
+    )
 
 
 @app.command()
@@ -310,14 +307,6 @@ def signs(
     typer.echo(f"{len(metadata.annotations)} signs written to {out}")
 
 
-@app.command()
-def benchmark(
-    dataset: Annotated[Path, typer.Option("--dataset", exists=True, file_okay=False, help="Dataset folder.")],
-) -> None:
-    """Run the tracker / model / privacy benchmarks on a dataset."""
-    _planned("step 8")
-
-
 HostOption = Annotated[str, typer.Option(help="Interface to listen on (0.0.0.0 in containers).")]
 
 
@@ -381,19 +370,272 @@ def serve_detect(
     uvicorn.run(create_app(settings), host=host, port=port, log_level=settings.log_level.lower())
 
 
+DatasetOption = Annotated[
+    Path, typer.Option("--dataset", file_okay=False, help="Privacy dataset folder (outside the repository).")
+]
+ClipIdOption = Annotated[
+    str, typer.Option("--id", help="Clip identifier (lower-case letters, digits, - and _).")
+]
+ThresholdsOption = Annotated[
+    Path,
+    typer.Option("--thresholds", exists=True, dir_okay=False, help="Privacy gate thresholds."),
+]
+DEFAULT_THRESHOLDS = Path("benchmarks/privacy-thresholds.yaml")
+
+
+PreannotationConf = Annotated[
+    float, typer.Option("--conf", help="Minimum best score of a pre-annotated track.")
+]
+PreannotationMinFrames = Annotated[
+    int,
+    typer.Option("--min-frames", min=1, help="Minimum frames on which a pre-annotated track was detected."),
+]
+
+
 @annotate_app.command(name="export")
 def annotate_export(
     input_video: InputVideo,
-    start: Annotated[float, typer.Option(help="Clip start, in seconds.")] = 0.0,
-    duration: Annotated[float, typer.Option(help="Clip duration, in seconds.")] = 15.0,
+    dataset: DatasetOption,
+    clip_id: ClipIdOption,
+    start: Annotated[float, typer.Option(min=0, help="Clip start, in seconds.")] = 0.0,
+    duration: Annotated[float, typer.Option(min=0.1, help="Clip duration, in seconds.")] = 15.0,
+    proxy_width: Annotated[int, typer.Option(min=320, help="Maximum width of the CVAT proxy.")] = 3840,
+    conf: PreannotationConf = 0.25,
+    min_frames: PreannotationMinFrames = 5,
+    model: ModelOption = None,
 ) -> None:
-    """Cut a clip, build an annotation proxy and a pre-annotation for CVAT."""
-    _planned("step 8")
+    """Cut a clip, build an annotation proxy and a pre-annotation for CVAT.
+
+    Writes ``clips/<id>/clip.mp4``, ``proxy.mp4`` and ``preannotation.xml`` in the
+    dataset folder and adds the clip to ``manifest.yaml``.
+    """
+    from sgblur_video.bench.annotate import export_clip, preannotate_clip
+    from sgblur_video.bench.dataset import Dataset
+
+    settings = _setup()
+    data = Dataset(dataset)
+    try:
+        entry = export_clip(
+            input_video,
+            data,
+            clip_id,
+            settings,
+            start_s=start,
+            duration_s=duration,
+            proxy_max_width=proxy_width,
+            progress=_Progress(f"{clip_id} cut"),
+        )
+        tracks = preannotate_clip(
+            data,
+            clip_id,
+            settings,
+            conf=conf,
+            min_frames=min_frames,
+            model_name=model,
+            progress=_Progress(f"{clip_id} analysis"),
+        )
+    except _expected_errors() as exc:
+        _fail(exc)
+    typer.echo(
+        f"{entry.id}: {entry.frames} frames, proxy {entry.proxy_width}x{entry.proxy_height}, "
+        f"{tracks} pre-annotated tracks. Next: create a CVAT task from proxy.mp4, upload "
+        "preannotation.xml (CVAT 1.1), correct it, export 'CVAT for video 1.1', then run "
+        "'sgblur-video annotate import'."
+    )
+
+
+@annotate_app.command(name="preannotate")
+def annotate_preannotate(
+    dataset: DatasetOption,
+    clip_id: ClipIdOption,
+    conf: PreannotationConf = 0.25,
+    min_frames: PreannotationMinFrames = 5,
+    model: ModelOption = None,
+) -> None:
+    """Rebuild the pre-annotation of an exported clip (other thresholds; detections are cached)."""
+    from sgblur_video.bench.annotate import preannotate_clip
+    from sgblur_video.bench.dataset import Dataset
+
+    settings = _setup()
+    try:
+        tracks = preannotate_clip(
+            Dataset(dataset),
+            clip_id,
+            settings,
+            conf=conf,
+            min_frames=min_frames,
+            model_name=model,
+            progress=_Progress(f"{clip_id} analysis"),
+        )
+    except _expected_errors() as exc:
+        _fail(exc)
+    typer.echo(f"{clip_id}: {tracks} pre-annotated tracks")
 
 
 @annotate_app.command(name="import")
 def annotate_import(
     cvat_export: Annotated[Path, typer.Argument(exists=True, dir_okay=False, help="CVAT for video 1.1 XML.")],
+    dataset: DatasetOption,
+    clip_id: ClipIdOption,
+    annotator: Annotated[str, typer.Option(help="Who annotated the clip (recorded in the manifest).")] = "",
 ) -> None:
-    """Convert a CVAT export into the privacy dataset format."""
-    _planned("step 8")
+    """Convert a CVAT export into the privacy dataset format (``ground_truth.json``)."""
+    from sgblur_video.bench.annotate import import_annotation
+    from sgblur_video.bench.dataset import Dataset
+
+    _setup()
+    try:
+        truth = import_annotation(Dataset(dataset), clip_id, cvat_export, annotator=annotator)
+    except _expected_errors() as exc:
+        _fail(exc)
+    boxes = sum(len(t.boxes) for t in truth.tracks)
+    readable = sum(1 for t in truth.tracks for b in t.boxes if b.readable)
+    typer.echo(f"{clip_id}: {len(truth.tracks)} tracks, {boxes} object-frames ({readable} readable)")
+
+
+def _emit(report: dict[str, Any], report_dir: Path | None) -> None:
+    from sgblur_video.bench.report import to_markdown, write_report
+
+    typer.echo(to_markdown(report))
+    if report_dir is not None:
+        json_path, md_path = write_report(report, report_dir)
+        typer.echo(f"report written to {json_path} and {md_path}", err=True)
+
+
+ReportDirOption = Annotated[
+    Path | None,
+    typer.Option("--report-dir", file_okay=False, help="Also write JSON and Markdown reports here."),
+]
+
+
+@benchmark_app.command(name="privacy")
+def benchmark_privacy(
+    dataset: DatasetOption,
+    sweep: Annotated[
+        list[str] | None,
+        typer.Option("--sweep", help="Settings to compare, e.g. CONF_BLUR=0.1,0.25 (repeatable)."),
+    ] = None,
+    model: ModelOption = None,
+    tracker: TrackerOption = None,
+    thresholds: ThresholdsOption = DEFAULT_THRESHOLDS,
+    report_dir: ReportDirOption = None,
+) -> None:
+    """Leakage of faces and plates on the annotated clips, gated by the thresholds.
+
+    Exits with code 1 when the default settings (first run) fail the gate.
+    """
+    from sgblur_video.bench.dataset import Dataset
+    from sgblur_video.bench.runs import load_thresholds, parse_sweeps, run_privacy
+
+    settings = _setup(tracker)
+    try:
+        report = run_privacy(
+            Dataset(dataset),
+            settings,
+            sweeps=parse_sweeps(sweep or []),
+            thresholds=load_thresholds(thresholds),
+            model_name=model,
+            progress=_Progress,
+        )
+    except _expected_errors(ValueError) as exc:
+        _fail(exc)
+    _emit(report, report_dir or dataset / "reports")
+    if not report["runs"][0]["gate"]["passed"]:
+        raise typer.Exit(code=1)
+
+
+@benchmark_app.command(name="trackers")
+def benchmark_trackers(
+    video: Annotated[
+        list[Path] | None,
+        typer.Option("--video", exists=True, dir_okay=False, help="Video to compare on (repeatable)."),
+    ] = None,
+    dataset: Annotated[
+        Path | None, typer.Option("--dataset", file_okay=False, help="Also use the annotated clips.")
+    ] = None,
+    tracker: Annotated[
+        list[Path] | None,
+        typer.Option(
+            "--tracker", exists=True, dir_okay=False, help="Tracker YAML (default: configs/trackers/*)."
+        ),
+    ] = None,
+    model: ModelOption = None,
+    max_frames: MaxFramesOption = None,
+    thresholds: ThresholdsOption = DEFAULT_THRESHOLDS,
+    report_dir: ReportDirOption = None,
+    cache_dir: Annotated[
+        Path | None,
+        typer.Option("--cache-dir", file_okay=False, help="Detections cache of --video files."),
+    ] = None,
+) -> None:
+    """Compare trackers on the same detections (detection runs once, tracking is replayed).
+
+    Detections of ``--video`` files are cached in ``~/.cache/sgblur-video/bench`` by default.
+    """
+    from sgblur_video.bench.cache import DetectionCache
+    from sgblur_video.bench.dataset import Dataset
+    from sgblur_video.bench.runs import DEFAULT_CACHE, ModelSource, load_thresholds, run_trackers
+
+    settings = _setup()
+    trackers = tracker or sorted(Path("configs/trackers").glob("*.yaml"))
+    videos: list[tuple[str, Path, DetectionCache | None]] = [
+        (f"video-{i + 1}", path, None) for i, path in enumerate(video or [])
+    ]
+    truths = {}
+    try:
+        if dataset is not None:
+            data = Dataset(dataset)
+            source = ModelSource(settings, model)
+            sha, loader = source.sha256(), source.loader()
+            for clip in data.load_manifest().clips:
+                videos.append(
+                    (clip.id, data.clip_video(clip.id), DetectionCache(data.cache_dir(clip.id), sha, loader))
+                )
+                if (truth := data.load_ground_truth(clip.id)) is not None:
+                    truths[clip.id] = truth
+        if not videos:
+            _fail(ValueError("give --video and/or --dataset"))
+        report = run_trackers(
+            videos,
+            settings,
+            trackers=trackers,
+            truths=truths,
+            thresholds=load_thresholds(thresholds),
+            model_name=model,
+            max_frames=max_frames,
+            cache_dir=cache_dir or DEFAULT_CACHE,
+            progress=_Progress,
+        )
+    except _expected_errors() as exc:
+        _fail(exc)
+    _emit(report, report_dir)
+
+
+@benchmark_app.command(name="speed")
+def benchmark_speed(
+    input_video: InputVideo,
+    model: Annotated[list[str] | None, typer.Option("--model", help="Registry model (repeatable).")] = None,
+    device: Annotated[list[str] | None, typer.Option("--device", help="cpu, mps, cuda (repeatable).")] = None,
+    profile: Annotated[
+        list[str] | None, typer.Option("--profile", help="fast, standard, thorough (repeatable).")
+    ] = None,
+    frames: Annotated[int, typer.Option(min=1, help="Timed frames per combination.")] = 20,
+    report_dir: ReportDirOption = None,
+) -> None:
+    """Detection speed per model, device and detection profile."""
+    from sgblur_video.bench.runs import run_speed
+
+    settings = _setup()
+    try:
+        report = run_speed(
+            input_video,
+            settings,
+            models=model or [settings.model_name or "yolo26s"],
+            devices=device or [settings.device],
+            profiles=profile or [settings.detect_profile.value],
+            frames=frames,
+            progress=_Progress,
+        )
+    except _expected_errors(ValueError) as exc:
+        _fail(exc)
+    _emit(report, report_dir)

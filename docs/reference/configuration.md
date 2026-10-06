@@ -34,7 +34,7 @@ privacy note must not be changed without running the privacy benchmark
 
 | Variable | Type | Default | Description | Privacy |
 |---|---|---|---|---|
-| `DETECT_PROFILE` | `fast` \| `standard` \| `thorough` | `standard` | Detection passes per frame: `fast`, `standard` or `thorough`. | `fast` misses more small faces and plates. |
+| `DETECT_PROFILE` | `fast` \| `standard` \| `thorough` | `standard` | Detection passes per frame: `fast`, `standard` or `thorough`. | `fast` found 3× fewer faces than `standard` on 8K video. |
 | `TILE_TRIGGER_WIDTH` | integer | `5760` | Frame long side (px) from which the tile pass runs. | Higher values miss more small objects. |
 | `EQUIRECT_PAD_RATIO` | number | `0.0625` | Circular padding added on each side of 360° frames, as a fraction of the width. | Lower values miss more objects at the 0°/360° seam. |
 | `PROJECTION` | `auto` \| `flat` \| `equirectangular` | `auto` | Force the projection when metadata is missing or wrong. | A wrong value breaks seam handling on 360° videos. |
