@@ -1,0 +1,32 @@
+name: Bug report
+description: Something does not work as documented (for a face or plate left visible, use the Privacy leak template).
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Do not attach videos, pictures or screenshots showing people or licence plates.**
+        If a face or plate stays visible, use the "Privacy leak / security" template instead.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, what you got.
+    validations:
+      required: true
+  - type: textarea
+    id: video
+    attributes:
+      label: Video characteristics
+      description: Resolution, frame rate, codec, duration, camera model, 360° or not (no file, no picture).
+  - type: textarea
+    id: config
+    attributes:
+      label: Version and configuration
+      description: Output of `sgblur-video version` and `sgblur-video config` (secrets are masked).
+      render: json
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      render: text

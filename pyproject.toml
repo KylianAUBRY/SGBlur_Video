@@ -1,0 +1,146 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "sgblur-video"
+version = "0.1.0.dev0"
+description = "Privacy blurring of street-level videos (faces, licence plates) with traffic-sign annotations, for Panoramax."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Kylian Aubry" }]
+requires-python = ">=3.14"
+keywords = ["panoramax", "privacy", "blur", "video", "yolo", "tracking", "anonymization"]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Intended Audience :: Developers",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Multimedia :: Video",
+    "Topic :: Scientific/Engineering :: Image Recognition",
+    "Typing :: Typed",
+]
+dependencies = [
+    # Detection and tracking. Pinned exactly: Ultralytics ships breaking changes in
+    # patch releases (see docs/adr/0002). Upgrades go through the contract tests.
+    "ultralytics==8.4.173",
+    # Required by Ultralytics trackers; declared so Ultralytics never pip-installs it at runtime.
+    "lap>=0.5.13",
+    # Ultralytics depends on opencv-python (GUI build, needs libGL); we use the headless
+    # build instead, see [tool.uv] override-dependencies below.
+    "opencv-python-headless>=5.0",
+    # Used directly for device and memory detection. On Linux the lock resolves CPU-only
+    # wheels (see [tool.uv.sources]); CUDA builds are selected in the GPU image (step 6).
+    "torch>=2.14",
+    "torchvision>=0.29",
+    # Video decoding, encoding and muxing (bundles FFmpeg 9.0.2). Pinned exactly.
+    "av==19.0.1",
+    "numpy>=2.5",
+    "pydantic>=2.13",
+    "pydantic-settings>=2.15",
+    "pyyaml>=6.0.3",
+    "typer>=0.27",
+    "fastapi>=0.142",
+    "uvicorn[standard]>=0.54",
+    "python-multipart>=0.0.32",
+    "httpx>=0.28",
+    "cryptography>=50.0",
+]
+
+[project.scripts]
+sgblur-video = "sgblur_video.cli:app"
+
+[project.urls]
+Homepage = "https://github.com/KylianAUBRY/SGBlur_Video"
+Documentation = "https://kylianaubry.github.io/SGBlur_Video/"
+Issues = "https://github.com/KylianAUBRY/SGBlur_Video/issues"
+Changelog = "https://github.com/KylianAUBRY/SGBlur_Video/blob/main/CHANGELOG.md"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1",
+    "pytest-cov>=7.1",
+    "ruff>=0.16.10",
+    "mypy>=2.4",
+    "pre-commit>=4.6",
+    "types-PyYAML>=6.0.12",
+]
+docs = [
+    "mkdocs>=1.6.1,<2",  # MkDocs 2 drops the plugin system used by Material and mkdocstrings
+    "mkdocs-material>=9.7.7",
+    "mkdocstrings-python>=2.0.9",
+]
+
+[tool.uv]
+default-groups = ["dev", "docs"]
+# Replace Ultralytics' opencv-python (GUI) requirement by our opencv-python-headless one:
+# the marker never matches, so opencv-python is never installed.
+override-dependencies = ["opencv-python; sys_platform == 'never'"]
+
+[tool.uv.sources]
+# CPU-only PyTorch on Linux (CI, CPU image): ~200 MB instead of several GB of CUDA libraries.
+# macOS uses the PyPI wheels, which support Apple GPUs (MPS).
+torch = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
+torchvision = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/sgblur_video"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py314"
+src = ["src", "tests", "scripts"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W", "F", "I", "B", "UP", "SIM", "C4", "PTH", "RUF", "S", "N", "D", "ANN", "PT", "T20",
+]
+ignore = [
+    "D105",  # magic methods do not need a docstring
+    "D107",  # __init__ is documented in the class docstring (Google style)
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "D100", "D103", "D104", "ANN"]
+"scripts/**" = ["T20"]
+
+[tool.mypy]
+python_version = "3.14"
+strict = true
+files = ["src"]
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = ["ultralytics.*", "av.*", "cv2.*", "lap.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+minversion = "9.0"
+testpaths = ["tests"]
+addopts = ["-ra", "--strict-markers", "--strict-config"]
+markers = [
+    "integration: needs model weights and media fixtures (downloaded on demand)",
+    "privacy: synthetic privacy oracle (CI gate)",
+    "slow: takes more than a few seconds",
+]
+filterwarnings = ["error"]
+
+[tool.coverage.run]
+source = ["sgblur_video"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+exclude_also = ["if TYPE_CHECKING:", "raise NotImplementedError"]

@@ -1,0 +1,48 @@
+name: Privacy leak / security
+description: A face or plate stays visible, a blur can be reversed, original data survives, or another vulnerability.
+title: "[privacy] "
+labels: [privacy, security]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ⚠️ **This issue is public.** Private reporting is planned for v2 (see SECURITY.md).
+
+        - **Never attach** a video, a picture, a screenshot or a link to media showing a person or a plate.
+        - **Never give** a place, a date, a name or anything identifying the person, the vehicle or the location.
+
+        Issues breaking these rules are deleted.
+  - type: checkboxes
+    id: rules
+    attributes:
+      label: Rules
+      options:
+        - label: This report contains no media and no identifying information.
+          required: true
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Kind of problem
+      options:
+        - Face left visible
+        - Plate left visible
+        - Blur can be reversed or seen through
+        - Original data kept longer than documented
+        - Other vulnerability
+    validations:
+      required: true
+  - type: textarea
+    id: situation
+    attributes:
+      label: Technical description
+      description: |
+        Resolution, frame rate, codec, 360° or not, approximate object size in pixels, motion,
+        lighting, how many consecutive frames stay visible, at the start/middle/end of the appearance.
+    validations:
+      required: true
+  - type: textarea
+    id: config
+    attributes:
+      label: Version and configuration
+      description: Output of `sgblur-video version` and `sgblur-video config` (secrets are masked).
+      render: json

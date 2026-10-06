@@ -1,0 +1,16 @@
+# Privacy gate thresholds (provisional, see docs/design/testing-strategy.md).
+# Tighten them as the annotated dataset grows; never loosen without an ADR.
+
+synthetic_oracle:
+  # Objects reported at least once by the scripted fake detector.
+  max_leaked_object_frames: 0
+  # Sign pixels blurred outside face/plate overlaps.
+  max_blurred_sign_pixels: 0
+
+annotated_dataset:
+  # An object-frame is protected when this share of its ground-truth box is blurred.
+  coverage_threshold: 0.9
+  # Share of unprotected object-frames among objects marked `readable`.
+  max_leakage_rate_readable: 0.01
+  # Longest run of consecutive unprotected frames allowed for a `readable` track.
+  max_consecutive_exposed_frames_readable: 3

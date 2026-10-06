@@ -1,0 +1,576 @@
+openapi: 3.1.0
+info:
+  title: SGBlur-Video
+  version: 0.1.0-draft
+  summary: Privacy blurring of street-level videos for Panoramax.
+  description: |
+    Draft contract (step 2). Blurs faces and licence plates on every frame of a
+    video and returns one Panoramax annotation per physical traffic sign.
+    The Blur API (port 8000) and the Detect API (port 8001) are two separate
+    applications; both are described here and separated by tags.
+  license:
+    name: MIT
+    identifier: MIT
+servers:
+  - url: http://localhost:8000
+    description: Blur API
+  - url: http://localhost:8001
+    description: Detect API
+tags:
+  - name: blur
+    description: Blur API (port 8000)
+  - name: jobs
+    description: Asynchronous jobs of the Blur API
+  - name: detect
+    description: Detect API (port 8001)
+  - name: ops
+    description: Health and metrics (both APIs)
+security:
+  - {}
+  - bearerToken: []
+paths:
+  /:
+    get:
+      tags: [ops]
+      summary: Health, version and loaded model
+      operationId: getHealth
+      security: [{}]
+      responses:
+        "200":
+          description: Service is up.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Health"}
+              example:
+                name: SGBlur-Video
+                version: 0.1.0
+                status: ok
+                model: {name: yolo26s, version: 0.1.0}
+                tracker: tracktrack-recall
+                device: mps
+                queue: {queued: 0, running: 1}
+  /blur/:
+    post:
+      tags: [blur]
+      summary: Submit a video for blurring
+      operationId: blurVideo
+      parameters:
+        - name: keep
+          in: query
+          description: Keep encrypted originals of low-confidence blurred regions for KEEP_TTL_HOURS.
+          schema: {type: integer, enum: [0, 1], default: 0}
+        - name: sync
+          in: query
+          description: Wait for the result (only for videos up to SYNC_MAX_DURATION_S).
+          schema: {type: integer, enum: [0, 1], default: 0}
+        - name: frames
+          in: query
+          description: Also produce one blurred JPEG per sign annotation.
+          schema: {type: integer, enum: [0, 1], default: 0}
+        - name: callback_url
+          in: query
+          description: URL called with POST and the job status when the job ends. Host must be allow-listed.
+          schema: {type: string, format: uri}
+        - name: Accept
+          in: header
+          description: Send `multipart/form-data` with `sync=1` to get metadata and video in one multipart response.
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [video]
+              properties:
+                video:
+                  type: string
+                  contentMediaType: video/mp4
+                  description: MP4 or MOV file.
+      responses:
+        "202":
+          description: Job accepted.
+          headers:
+            Location:
+              schema: {type: string}
+              example: /jobs/3f0d2c3e-8a51-4c1f-9a4e-0d6f8f4f5b21
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Job"}
+              example:
+                job_id: 3f0d2c3e-8a51-4c1f-9a4e-0d6f8f4f5b21
+                status: queued
+                phase: null
+                progress: {percent: 0.0, frames_done: 0, frames_total: 2893}
+                eta_s: null
+                created_at: "2026-10-06T14:00:02Z"
+                started_at: null
+                finished_at: null
+                expires_at: null
+                error: null
+                links:
+                  self: /jobs/3f0d2c3e-8a51-4c1f-9a4e-0d6f8f4f5b21
+                  video: /jobs/3f0d2c3e-8a51-4c1f-9a4e-0d6f8f4f5b21/video
+                  metadata: /jobs/3f0d2c3e-8a51-4c1f-9a4e-0d6f8f4f5b21/metadata
+        "200":
+          description: Synchronous result (`sync=1`).
+          headers:
+            X-SGBlur-Video-Job:
+              description: Job id, present on the non-multipart response.
+              schema: {type: string, format: uuid}
+          content:
+            multipart/form-data:
+              schema:
+                type: object
+                properties:
+                  metadata: {$ref: "#/components/schemas/Metadata"}
+                  video: {type: string, contentMediaType: video/mp4}
+              encoding:
+                metadata: {contentType: application/json}
+                video: {contentType: video/mp4}
+            video/mp4:
+              schema: {type: string, contentMediaType: video/mp4}
+        "413": {$ref: "#/components/responses/FileTooLarge"}
+        "415": {$ref: "#/components/responses/Unsupported"}
+        "422": {$ref: "#/components/responses/Unprocessable"}
+        "503": {$ref: "#/components/responses/QueueFull"}
+  /jobs/{job_id}:
+    parameters:
+      - $ref: "#/components/parameters/JobId"
+    get:
+      tags: [jobs]
+      summary: Job status and progress
+      operationId: getJob
+      responses:
+        "200":
+          description: Current job status.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Job"}
+              example:
+                job_id: 3f0d2c3e-8a51-4c1f-9a4e-0d6f8f4f5b21
+                status: running
+                phase: analyzing
+                progress: {percent: 41.7, frames_done: 1205, frames_total: 2893}
+                eta_s: 655
+                created_at: "2026-10-06T14:00:02Z"
+                started_at: "2026-10-06T14:00:05Z"
+                finished_at: null
+                expires_at: null
+                error: null
+                links:
+                  self: /jobs/3f0d2c3e-8a51-4c1f-9a4e-0d6f8f4f5b21
+                  video: /jobs/3f0d2c3e-8a51-4c1f-9a4e-0d6f8f4f5b21/video
+                  metadata: /jobs/3f0d2c3e-8a51-4c1f-9a4e-0d6f8f4f5b21/metadata
+        "404": {$ref: "#/components/responses/NotFound"}
+        "410": {$ref: "#/components/responses/Expired"}
+    delete:
+      tags: [jobs]
+      summary: Cancel the job and delete all its files now
+      operationId: deleteJob
+      responses:
+        "204":
+          description: Job cancelled (if needed) and every file deleted. Idempotent.
+        "404": {$ref: "#/components/responses/NotFound"}
+  /jobs/{job_id}/video:
+    parameters:
+      - $ref: "#/components/parameters/JobId"
+    get:
+      tags: [jobs]
+      summary: Download the blurred video
+      operationId: getJobVideo
+      parameters:
+        - name: Range
+          in: header
+          required: false
+          schema: {type: string}
+          example: bytes=0-1048575
+      responses:
+        "200":
+          description: Blurred video.
+          headers:
+            Content-Disposition:
+              schema: {type: string}
+              example: attachment; filename="blurred.mp4"
+          content:
+            video/mp4:
+              schema: {type: string, contentMediaType: video/mp4}
+        "206":
+          description: Partial content (range request).
+          content:
+            video/mp4:
+              schema: {type: string, contentMediaType: video/mp4}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/NotReady"}
+        "410": {$ref: "#/components/responses/Expired"}
+  /jobs/{job_id}/metadata:
+    parameters:
+      - $ref: "#/components/parameters/JobId"
+    get:
+      tags: [jobs]
+      summary: Blurring metadata and Panoramax annotations
+      operationId: getJobMetadata
+      responses:
+        "200":
+          description: Metadata of a succeeded job.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Metadata"}
+              example:
+                blurring_id: 56e83230-4e88-4700-9311-18a8197088bb
+                service_name: SGBlur-Video
+                annotations:
+                  - shape: [2201, 1502, 2291, 1591]
+                    semantics:
+                      - {key: "osm|traffic_sign", value: "yes"}
+                      - {key: "detection_model[osm|traffic_sign=yes]", value: "SGBlur-Video-yolo26s/0.1.0"}
+                      - {key: "detection_confidence[osm|traffic_sign=yes]", value: "0.874"}
+                    video:
+                      track_id: "signage:3"
+                      class: sign
+                      best_frame: 431
+                      best_timestamp: 14.367
+                      first_frame: 402
+                      first_timestamp: 13.4
+                      last_frame: 470
+                      last_timestamp: 15.667
+                      observations: 61
+                      confidence_max: 0.874
+                      confidence_mean: 0.731
+                      position: null
+                video:
+                  width: 7680
+                  height: 3840
+                  duration_s: 96.43
+                  frame_count: 2893
+                  projection: equirectangular
+                  telemetry: none
+                stats:
+                  tracks: {face: 14, plate: 37, signage: 22}
+                  blurred_boxes: {detected: 4021, interpolated: 311, padded: 2290, orphan: 344}
+                  frames_with_blur: 2410
+                  dropped_streams: []
+                  processing_s: 1212.5
+                  model: yolo26s/0.1.0
+                  tracker: tracktrack-recall
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/NotReady"}
+        "410": {$ref: "#/components/responses/Expired"}
+  /jobs/{job_id}/frames:
+    parameters:
+      - $ref: "#/components/parameters/JobId"
+    get:
+      tags: [jobs]
+      summary: List best-frame JPEGs (jobs created with frames=1)
+      operationId: listJobFrames
+      responses:
+        "200":
+          description: Index of best frames.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [frames]
+                properties:
+                  frames:
+                    type: array
+                    items: {$ref: "#/components/schemas/BestFrame"}
+              example:
+                frames:
+                  - n: 0
+                    url: /jobs/3f0d2c3e-8a51-4c1f-9a4e-0d6f8f4f5b21/frames/0.jpg
+                    annotation_index: 0
+                    frame: 431
+                    timestamp: 14.367
+                    width: 7680
+                    height: 3840
+                    shape: [2201, 1502, 2291, 1591]
+                    position: null
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/NotReady"}
+        "410": {$ref: "#/components/responses/Expired"}
+  /jobs/{job_id}/frames/{n}.jpg:
+    parameters:
+      - $ref: "#/components/parameters/JobId"
+      - name: n
+        in: path
+        required: true
+        schema: {type: integer, minimum: 0}
+    get:
+      tags: [jobs]
+      summary: Download one blurred best frame
+      operationId: getJobFrame
+      responses:
+        "200":
+          description: JPEG of the blurred output frame, with EXIF date and GPS when known.
+          content:
+            image/jpeg:
+              schema: {type: string, contentMediaType: image/jpeg}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "410": {$ref: "#/components/responses/Expired"}
+  /detect/:
+    post:
+      tags: [detect]
+      summary: Detect and track objects in a video (Detect API, port 8001)
+      operationId: detectVideo
+      servers:
+        - url: http://localhost:8001
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [video]
+              properties:
+                video: {type: string, contentMediaType: video/mp4}
+      responses:
+        "200":
+          description: detections.jsonl lines streamed as they are produced (header, one line per frame, footer).
+          content:
+            application/x-ndjson:
+              schema: {type: string}
+              example: |
+                {"type": "header", "schema": "sgblur-video/detections", "version": 1, "video": {"width": 1920, "height": 1080}}
+                {"type": "frame", "index": 0, "pts": 0, "time": 0.0, "detections": []}
+                {"type": "footer", "frames": 1, "complete": true}
+        "413": {$ref: "#/components/responses/FileTooLarge"}
+        "415": {$ref: "#/components/responses/Unsupported"}
+        "503":
+          description: The detector is already processing a video.
+          headers:
+            Retry-After: {schema: {type: integer}}
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
+              example: {detail: Detector busy, retry later., code: detector_busy}
+  /metrics:
+    get:
+      tags: [ops]
+      summary: Prometheus metrics
+      operationId: getMetrics
+      security: [{}]
+      responses:
+        "200":
+          description: Prometheus text exposition format.
+          content:
+            text/plain:
+              schema: {type: string}
+              example: |
+                # TYPE sgblur_video_jobs_in_progress gauge
+                sgblur_video_jobs_in_progress 1
+components:
+  securitySchemes:
+    bearerToken:
+      type: http
+      scheme: bearer
+      description: Required only when API_TOKEN is configured.
+  parameters:
+    JobId:
+      name: job_id
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+  responses:
+    FileTooLarge:
+      description: Upload larger than MAX_UPLOAD_BYTES.
+      content:
+        application/json:
+          schema: {$ref: "#/components/schemas/Error"}
+          example: {detail: File larger than 8 GiB., code: file_too_large}
+    Unsupported:
+      description: Container, codec or projection not supported.
+      content:
+        application/json:
+          schema: {$ref: "#/components/schemas/Error"}
+          examples:
+            media:
+              value: {detail: Only MP4 and MOV containers are accepted., code: unsupported_media_type}
+            projection:
+              value: {detail: "GoPro .360 (EAC) files are not supported; export an equirectangular MP4.", code: unsupported_projection}
+    Unprocessable:
+      description: Invalid parameter or limit exceeded.
+      content:
+        application/json:
+          schema: {$ref: "#/components/schemas/Error"}
+          examples:
+            too_long:
+              value: {detail: Video longer than 1800 s., code: video_too_long}
+            sync:
+              value: {detail: sync=1 is limited to videos up to 30 s., code: sync_too_long}
+            keep:
+              value: {detail: keep=1 is not available on this instance., code: keep_unavailable}
+            callback:
+              value: {detail: callback_url host is not allowed., code: callback_not_allowed}
+    QueueFull:
+      description: Too many queued jobs.
+      headers:
+        Retry-After: {schema: {type: integer}}
+      content:
+        application/json:
+          schema: {$ref: "#/components/schemas/Error"}
+          example: {detail: Queue is full, retry later., code: queue_full}
+    NotFound:
+      description: Unknown job.
+      content:
+        application/json:
+          schema: {$ref: "#/components/schemas/Error"}
+          example: {detail: Job not found., code: job_not_found}
+    NotReady:
+      description: Job has not succeeded (yet).
+      content:
+        application/json:
+          schema: {$ref: "#/components/schemas/Error"}
+          example: {detail: Job is still running., code: job_not_ready}
+    Expired:
+      description: Job files were deleted (result TTL elapsed).
+      content:
+        application/json:
+          schema: {$ref: "#/components/schemas/Error"}
+          example: {detail: Job results have expired., code: job_expired}
+  schemas:
+    Error:
+      type: object
+      required: [detail, code]
+      properties:
+        detail: {type: string}
+        code:
+          type: string
+          enum: [file_too_large, unsupported_media_type, unsupported_projection, video_too_long, sync_too_long,
+                 invalid_parameter, keep_unavailable, callback_not_allowed, queue_full, detector_busy,
+                 job_not_found, job_not_ready, job_expired, unauthorized]
+    Health:
+      type: object
+      required: [name, version, status, model]
+      properties:
+        name: {type: string}
+        version: {type: string}
+        status: {type: string, enum: [ok, degraded]}
+        model:
+          type: object
+          properties:
+            name: {type: string}
+            version: {type: string}
+        tracker: {type: string}
+        device: {type: string, enum: [cpu, cuda, mps]}
+        queue:
+          type: object
+          properties:
+            queued: {type: integer}
+            running: {type: integer}
+    Job:
+      type: object
+      required: [job_id, status, progress, created_at, links]
+      properties:
+        job_id: {type: string, format: uuid}
+        status: {type: string, enum: [queued, running, succeeded, failed, cancelled, expired]}
+        phase: {type: [string, "null"], enum: [analyzing, postprocessing, rendering, finalizing, null]}
+        progress:
+          type: object
+          properties:
+            percent: {type: number, minimum: 0, maximum: 100}
+            frames_done: {type: integer}
+            frames_total: {type: integer}
+        eta_s: {type: [integer, "null"]}
+        created_at: {type: string, format: date-time}
+        started_at: {type: [string, "null"], format: date-time}
+        finished_at: {type: [string, "null"], format: date-time}
+        expires_at: {type: [string, "null"], format: date-time}
+        error:
+          oneOf:
+            - type: "null"
+            - type: object
+              properties:
+                code: {type: string}
+                message: {type: string}
+        links:
+          type: object
+          properties:
+            self: {type: string}
+            video: {type: string}
+            metadata: {type: string}
+    SemanticTag:
+      type: object
+      required: [key, value]
+      properties:
+        key: {type: string, maxLength: 256}
+        value: {type: string, maxLength: 2048}
+    VideoTrackInfo:
+      type: object
+      description: Extension to the Panoramax picture annotation format.
+      properties:
+        track_id: {type: string}
+        class: {type: string, enum: [sign, direction]}
+        best_frame: {type: integer}
+        best_timestamp: {type: number}
+        first_frame: {type: integer}
+        first_timestamp: {type: number}
+        last_frame: {type: integer}
+        last_timestamp: {type: number}
+        observations: {type: integer}
+        confidence_max: {type: number}
+        confidence_mean: {type: number}
+        position:
+          oneOf:
+            - type: "null"
+            - $ref: "#/components/schemas/Position"
+    Position:
+      type: object
+      required: [lat, lon, source]
+      properties:
+        lat: {type: number}
+        lon: {type: number}
+        alt: {type: [number, "null"]}
+        source: {type: string, enum: [gpmf]}
+    Annotation:
+      type: object
+      required: [shape, semantics]
+      properties:
+        shape:
+          type: array
+          description: Integer pixel bbox [minx, miny, maxx, maxy], top-left origin, display orientation.
+          items: {type: integer, minimum: 0}
+          minItems: 4
+          maxItems: 4
+        semantics:
+          type: array
+          items: {$ref: "#/components/schemas/SemanticTag"}
+        video: {$ref: "#/components/schemas/VideoTrackInfo"}
+    Metadata:
+      type: object
+      required: [service_name, annotations]
+      properties:
+        blurring_id: {type: string}
+        service_name: {type: string}
+        annotations:
+          type: array
+          items: {$ref: "#/components/schemas/Annotation"}
+        video:
+          type: object
+          properties:
+            width: {type: integer}
+            height: {type: integer}
+            duration_s: {type: number}
+            frame_count: {type: integer}
+            projection: {type: string, enum: [flat, equirectangular]}
+            telemetry: {type: string, enum: [none, gpmf]}
+        stats:
+          type: object
+          additionalProperties: true
+    BestFrame:
+      type: object
+      properties:
+        n: {type: integer}
+        url: {type: string}
+        annotation_index: {type: integer}
+        frame: {type: integer}
+        timestamp: {type: number}
+        width: {type: integer}
+        height: {type: integer}
+        shape:
+          type: array
+          items: {type: integer}
+        position:
+          oneOf:
+            - type: "null"
+            - $ref: "#/components/schemas/Position"

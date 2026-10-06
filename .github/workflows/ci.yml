@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  UV_FROZEN: "1"          # fail if uv.lock is out of date
+  YOLO_OFFLINE: "true"    # no Ultralytics telemetry or online checks in CI
+
+jobs:
+  lint:
+    name: Lint and format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
+      - run: uv run --only-group dev ruff format --check .
+      - run: uv run --only-group dev ruff check .
+
+  types:
+    name: Types (mypy --strict)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
+        with:
+          enable-cache: true
+      - run: uv sync --no-group docs
+      - run: uv run --no-sync mypy
+
+  tests:
+    name: Tests (CPU)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
+        with:
+          enable-cache: true
+      - run: uv sync --no-group docs
+      - run: uv run --no-sync pytest --cov --cov-report=term --cov-report=xml
+      - run: uv run --no-sync python scripts/gen_config_reference.py --check
+
+  docs:
+    name: Documentation (strict build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
+      # mkdocstrings reads the sources statically: no need to install the heavy runtime.
+      - run: uv run --only-group docs mkdocs build --strict

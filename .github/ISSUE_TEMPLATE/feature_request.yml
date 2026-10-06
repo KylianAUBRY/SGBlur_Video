@@ -1,0 +1,16 @@
+name: Feature request
+description: Suggest an improvement.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: need
+    attributes:
+      label: Need
+      description: What problem would this solve, for whom?
+    validations:
+      required: true
+  - type: textarea
+    id: privacy
+    attributes:
+      label: Privacy impact
+      description: Could this change leave faces or plates visible, or keep personal data longer?

@@ -1,0 +1,40 @@
+# Model registry of sgblur-video.
+#
+# Weights are never committed to this repository: they are downloaded from the
+# pinned URL into MODELS_DIR and verified against `sha256` before use.
+# Adding a model (e.g. a future YOLO27 release of SGBlur) = adding an entry.
+# Field reference: docs/guides/models.md. Decision record: docs/adr/0009.
+#
+# `classes` lists the class names the checkpoint must contain, in the model's
+# own order (informative: the code always uses names, never indices).
+
+schema_version: 1
+
+models:
+  - name: yolo26s
+    family: yolo26
+    # Aligned with SGBlur's registry once upstream registers this model.
+    version: "0.1.0"
+    file: yolo26s_panoramax.pt
+    url: https://gitlab.com/panoramax/server/sgblur/-/raw/34c318b132fd890193d002d8609a8ffef8011b12/models/yolo26s_panoramax.pt
+    sha256: 9efa3df0c719713c79151f55fb5b3b694d168ee793901ef8f11dda753e7152a7
+    size_bytes: 20631877
+    classes: [direction, sign, plate, face]
+    train_imgsz: 2048
+    # Free accelerator memory needed to run the standard detection profile.
+    min_memory_gib: 2
+    licence: "Upstream statement: etalab-2.0 (Hugging Face card); checkpoint metadata: AGPL-3.0"
+    source: https://gitlab.com/panoramax/server/sgblur
+
+  - name: yolo11s
+    family: yolo11
+    version: "0.1.0"
+    file: yolo11s_panoramax.pt
+    url: https://gitlab.com/panoramax/server/sgblur/-/raw/34c318b132fd890193d002d8609a8ffef8011b12/models/yolo11s_panoramax.pt
+    sha256: 28222165ec8fd01dd7e377b2e9f4e2a7d937a15e4a3aa545d2431f317532e774
+    size_bytes: 19524947
+    classes: [sign, plate, face]
+    train_imgsz: 2048
+    min_memory_gib: 2
+    licence: "Upstream statement: etalab-2.0 (Hugging Face card); checkpoint metadata: AGPL-3.0"
+    source: https://gitlab.com/panoramax/server/sgblur

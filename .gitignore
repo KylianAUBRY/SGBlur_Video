@@ -1,0 +1,56 @@
+# --- Privacy: never commit media or model weights -------------------------------
+# Videos and pictures may show identifiable people; weights are downloaded and
+# hash-checked (models/registry.yaml). Test fixtures are fetched by tests/data/fetch.py.
+*.mp4
+*.MP4
+*.mov
+*.MOV
+*.m4v
+*.mkv
+*.webm
+*.avi
+*.360
+*.insv
+*.lrv
+*.LRV
+*.thm
+*.THM
+*.jpg
+*.JPG
+*.jpeg
+*.png
+*.pt
+*.onnx
+*.engine
+*.mlpackage/
+detections*.jsonl
+# Allow documentation images explicitly
+!docs/assets/**/*.png
+!docs/assets/**/*.jpg
+
+# --- Runtime data -----------------------------------------------------------------
+/data/
+/models/*
+!/models/registry.yaml
+!/models/README.md
+.env
+
+# --- Python / tooling -------------------------------------------------------------
+__pycache__/
+*.py[cod]
+.venv/
+build/
+dist/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+/site/
+
+# --- OS / editors -----------------------------------------------------------------
+.DS_Store
+.idea/
+.vscode/

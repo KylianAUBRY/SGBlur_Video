@@ -1,0 +1,14 @@
+version: 2
+updates:
+  - package-ecosystem: uv
+    directory: /
+    schedule:
+      interval: weekly
+    # Ultralytics and PyAV are pinned exactly and upgraded deliberately (contract tests, benchmark).
+    ignore:
+      - dependency-name: ultralytics
+      - dependency-name: av
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
