@@ -53,8 +53,18 @@ uv run sgblur-video blur my-video.mp4 blurred.mp4 --debug
 
 `blurred.metadata.json` holds one Panoramax annotation per traffic sign and
 `blurred.debug.mp4` shows every blurred region and every sign. Add
-`--frames-dir frames/` to get the best view of each sign as a blurred JPEG. The
-HTTP API and `docker compose up` arrive in step 6.
+`--frames-dir frames/` to get the best view of each sign as a blurred JPEG.
+
+### As a service
+
+```bash
+docker compose -f docker/docker-compose.yml up --build       # or: uv run sgblur-video serve
+curl -s -F video=@my-video.mp4 http://localhost:8000/blur/   # → {"job_id": …}
+curl -s http://localhost:8000/jobs/<job_id>                   # progress
+curl -s -o blurred.mp4 http://localhost:8000/jobs/<job_id>/video
+```
+
+See [HTTP API](docs/usage/api.md).
 
 ## Roadmap
 
@@ -65,8 +75,8 @@ HTTP API and `docker compose up` arrive in step 6.
 | 3 | Project skeleton, configuration, CI, docs structure | ✅ done |
 | 4 | Core pipeline as a CLI, with tests | ✅ done |
 | 5 | Traffic signs: deduplication, annotations, best frames | ✅ done |
-| 6 | Asynchronous HTTP API, Docker | ⏳ next |
-| 7 | 360° seam handling, telemetry, metadata preservation | |
+| 6 | Asynchronous HTTP API, Docker | ✅ done |
+| 7 | 360° seam handling, telemetry, metadata preservation | ⏳ next |
 | 8 | Benchmarks (trackers, models, devices) and default tuning | |
 | 9 | Documentation review | |
 

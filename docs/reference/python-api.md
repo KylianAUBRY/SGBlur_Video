@@ -27,3 +27,11 @@ Reference generated from the docstrings of the package.
 ::: sgblur_video.core.encode
 
 ::: sgblur_video.privacy.blur
+
+::: sgblur_video.privacy.keep
+
+::: sgblur_video.jobs.store
+
+::: sgblur_video.jobs.worker
+
+::: sgblur_video.jobs.runner
