@@ -101,6 +101,6 @@ def write_report(report: dict[str, Any], folder: Path) -> tuple[Path, Path]:
     folder.mkdir(parents=True, exist_ok=True)
     stem = f"{report['kind']}-{report['generated_at'].replace(':', '').replace('+0000', 'Z')}"
     json_path, md_path = folder / f"{stem}.json", folder / f"{stem}.md"
-    json_path.write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
+    json_path.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     md_path.write_text(to_markdown(report), encoding="utf-8")
     return json_path, md_path

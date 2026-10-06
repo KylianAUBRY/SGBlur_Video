@@ -8,7 +8,7 @@ timecode track is recreated by the muxer from the video stream's ``timecode``
 metadata.
 
 Box-level metadata that FFmpeg does not write (Spherical V1/V2, GoPro ``udta``)
-is transplanted afterwards by ``mp4boxes`` (step 7).
+is transplanted afterwards by ``mp4boxes``.
 """
 
 import logging
@@ -229,7 +229,7 @@ def render(
         finally:
             if debug_container is not None:
                 debug_container.close()
-    stats.elapsed_s = time.monotonic() - started
+    stats.elapsed_s = round(time.monotonic() - started, 2)
     if stats.frames != total:
         msg = f"rendered {stats.frames} frames, expected {total}"
         raise RenderError(msg)

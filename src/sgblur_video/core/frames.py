@@ -6,7 +6,7 @@ videos: they can be uploaded with ``isBlurred=true`` and their annotations
 orientation, so faces and plates on it are blurred like in the video.
 
 EXIF carries the capture date (container ``creation_time`` + frame timestamp);
-GPS is added when telemetry provides positions (step 7).
+GPS is added when telemetry provides positions.
 """
 
 import json

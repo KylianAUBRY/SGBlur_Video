@@ -27,7 +27,9 @@ Steps for ``blur`` classes (faces, plates):
 7. **Margin and shape** — boxes are enlarged by ``BLUR_BOX_MARGIN``; faces are
    blurred with the ellipse circumscribing that box, other classes with the box.
 
-360° seam stitching (step 7) and sign deduplication (step 5) plug in here later.
+On 360° video, every step measures distances around the 0°/360° seam
+(``wrap_width``), so an object crossing it stays one chain. Signs are linked
+the same way by ``semantics.annotations``.
 """
 
 import math

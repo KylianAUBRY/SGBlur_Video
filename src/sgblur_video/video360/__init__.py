@@ -1,5 +1,6 @@
-"""360° (equirectangular) support (step 7).
+"""360° (equirectangular) support: wrap-around geometry across the 0°/360° seam.
 
-Projection detection, circular padding, wrap-aware geometry, seam stitching
-and spherical metadata handling. See ``docs/adr/0007-360-video.md``.
+Projection detection lives in ``core.probe``, circular padding of detection
+passes in ``core.detect`` and the spherical metadata transplant in
+``core.mp4boxes``; they all use ``wrap``. See ``docs/adr/0007-360-video.md``.
 """

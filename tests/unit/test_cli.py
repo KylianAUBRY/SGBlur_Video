@@ -47,6 +47,14 @@ def test_config_masks_secrets(monkeypatch: pytest.MonkeyPatch) -> None:
     assert json.loads(result.output)["api_name"] == "SGBlur-Video"
 
 
+def test_config_hides_the_home_folder(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("MODELS_DIR", str(Path.home() / "models-here"))
+    result = runner.invoke(app, ["config"])
+    assert result.exit_code == 0
+    assert str(Path.home()) not in result.output
+    assert json.loads(result.output)["models_dir"] == "~/models-here"
+
+
 def test_benchmark_commands(tmp_path: Path, repo_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     result = runner.invoke(app, ["benchmark", "--help"])
     assert result.exit_code == 0

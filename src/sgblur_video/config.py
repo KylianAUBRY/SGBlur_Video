@@ -392,12 +392,6 @@ class Settings(BaseSettings):
         description="Accepted containers, comma-separated.",
         json_schema_extra=_doc("Jobs, storage and limits"),
     )
-    worker_concurrency: int = Field(
-        1,
-        ge=1,
-        description="Jobs processed in parallel by one worker (one accelerator: keep 1).",
-        json_schema_extra=_doc("Jobs, storage and limits"),
-    )
     queue_max: int = Field(
         20,
         ge=1,
