@@ -178,6 +178,7 @@ def test_limits_and_auth(settings: Settings, video_bytes: bytes) -> None:
     assert (busy.status_code, busy.headers["retry-after"]) == (503, "60")
     secured = _client(settings.model_copy(update={"api_token": SecretStr("t0ken")}))
     assert secured.get("/").status_code == 200  # health stays public
+    assert secured.get("/ui").status_code == 200  # the page is static; the user types the token in it
     assert secured.get("/jobs/3f0d2c3e-8a51-4c1f-9a4e-0d6f8f4f5b21").status_code == 401
     authorised = secured.get(
         "/jobs/3f0d2c3e-8a51-4c1f-9a4e-0d6f8f4f5b21", headers={"Authorization": "Bearer t0ken"}
@@ -225,3 +226,14 @@ def test_isolated_job_failure_cleans_up(isolated_settings: Settings, video_bytes
     assert status["status"] == "failed"
     assert status["error"]["code"] == "unsupported_media_type"
     assert not store.paths(job["job_id"]).root.exists()
+
+
+def test_web_ui(settings: Settings) -> None:
+    page = _client(settings).get("/ui")
+    assert page.status_code == 200
+    assert page.headers["content-type"].startswith("text/html")
+    # Self-contained: no external script, style or font.
+    assert "SGBlur-Video" in page.text
+    assert "http://" not in page.text
+    assert "https://" not in page.text
+    assert _client(settings.model_copy(update={"web_ui": False})).get("/ui").status_code == 404

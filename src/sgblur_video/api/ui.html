@@ -1,0 +1,316 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SGBlur-Video</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #ffffff; --text: #1d2330; --muted: #5d6677; --border: #dde1e8;
+    --accent: #2f6fde; --accent-text: #ffffff; --ok: #1f8a4c; --error: #c03030; --bar: #e6e9ef;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14171d; --card: #1d2129; --text: #e7eaf0; --muted: #9aa3b2; --border: #2e3440;
+      --accent: #5b8ef0; --accent-text: #0d1117; --ok: #4cc27c; --error: #f07070; --bar: #2a303b;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 860px; margin: 0 auto; padding: 32px 16px 64px; }
+  h1 { font-size: 1.6rem; margin: 0 0 4px; }
+  h2 { font-size: 1.1rem; margin: 0 0 12px; }
+  p.lead { color: var(--muted); margin: 0 0 24px; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+          padding: 20px; margin-bottom: 16px; }
+  .drop { display: block; border: 2px dashed var(--border); border-radius: 10px; padding: 28px 16px; text-align: center;
+          cursor: pointer; color: var(--muted); }
+  .drop.over, .drop:hover { border-color: var(--accent); color: var(--text); }
+  .drop strong { color: var(--text); }
+  input[type=file] { display: none; }
+  .row { display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: center; margin-top: 16px; }
+  label.check { display: flex; gap: 8px; align-items: center; cursor: pointer; }
+  details { margin-top: 12px; color: var(--muted); }
+  input[type=password] { width: 100%; max-width: 360px; padding: 8px 10px; border-radius: 8px;
+                         border: 1px solid var(--border); background: var(--bg); color: var(--text); }
+  button, a.button { appearance: none; border: 0; border-radius: 8px; padding: 10px 18px; font: inherit;
+                     font-weight: 600; cursor: pointer; background: var(--accent); color: var(--accent-text);
+                     text-decoration: none; display: inline-block; }
+  button.secondary { background: transparent; color: var(--text); border: 1px solid var(--border); }
+  button:disabled { opacity: .5; cursor: default; }
+  .bar { height: 10px; background: var(--bar); border-radius: 5px; overflow: hidden; margin: 12px 0 8px; }
+  .bar > div { height: 100%; width: 0; background: var(--accent); transition: width .3s; }
+  .muted { color: var(--muted); }
+  .error { color: var(--error); font-weight: 600; }
+  .ok { color: var(--ok); font-weight: 600; }
+  video { width: 100%; max-height: 70vh; background: #000; border-radius: 8px; margin: 8px 0 12px; }
+  .frames { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; }
+  .frames figure { margin: 0; }
+  .frames img { width: 100%; border-radius: 6px; display: block; background: var(--bar); }
+  .frames figcaption { font-size: .85rem; color: var(--muted); }
+  table { border-collapse: collapse; width: 100%; font-size: .9rem; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <h1>SGBlur-Video</h1>
+  <p class="lead">Blur faces and licence plates on every frame of a video. Traffic signs are kept and listed as
+    Panoramax annotations. The uploaded video is deleted from the server as soon as it is processed.</p>
+
+  <section class="card" id="upload-card">
+    <h2>1. Choose a video</h2>
+    <label class="drop" id="drop" for="file">
+      <strong>Drop an MP4 or MOV file here</strong><br>or click to choose one
+      <div id="file-name" class="muted"></div>
+    </label>
+    <input type="file" id="file" accept="video/mp4,video/quicktime,.mp4,.mov">
+    <div class="row">
+      <label class="check"><input type="checkbox" id="frames" checked> Best picture of each traffic sign</label>
+    </div>
+    <details>
+      <summary>API token</summary>
+      <p>Only if the server sets <code>API_TOKEN</code>. It stays in this page.</p>
+      <input type="password" id="token" autocomplete="off" placeholder="Bearer token">
+    </details>
+    <div class="row">
+      <button id="start" disabled>Blur this video</button>
+    </div>
+  </section>
+
+  <section class="card" id="progress-card" hidden>
+    <h2>2. Processing</h2>
+    <div id="stage">Uploading…</div>
+    <div class="bar"><div id="bar"></div></div>
+    <div id="detail" class="muted"></div>
+    <div class="row"><button class="secondary" id="cancel">Cancel and delete</button></div>
+  </section>
+
+  <section class="card" id="result-card" hidden>
+    <h2>3. Result</h2>
+    <p class="ok">Faces and licence plates are blurred.</p>
+    <video id="video" controls playsinline></video>
+    <p class="muted">If the video does not play, your browser may not support its codec (HEVC): download it.</p>
+    <div class="row">
+      <a class="button" id="download" download="blurred.mp4">Download the blurred video</a>
+      <button class="secondary" id="metadata-download">Download the annotations (JSON)</button>
+      <button class="secondary" id="delete">Delete from the server</button>
+    </div>
+    <div id="signs"></div>
+    <div id="frames-list" class="frames"></div>
+    <p class="muted" id="expires"></p>
+  </section>
+
+  <section class="card" id="error-card" hidden>
+    <p class="error" id="error"></p>
+    <button class="secondary" id="again">Try another video</button>
+  </section>
+</main>
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const state = { file: null, job: null, timer: null, urls: [] };
+
+function headers() {
+  const token = $("token").value.trim();
+  return token ? { Authorization: "Bearer " + token } : {};
+}
+
+function show(card) {
+  for (const id of ["progress-card", "result-card", "error-card"]) $(id).hidden = id !== card;
+  $("upload-card").hidden = card === "progress-card" || card === "result-card";
+}
+
+function fail(message) {
+  clearInterval(state.timer);
+  $("error").textContent = message;
+  show("error-card");
+}
+
+function describeError(status, body) {
+  try {
+    const data = JSON.parse(body);
+    if (data && data.detail) return data.detail + (data.code ? " (" + data.code + ")" : "");
+  } catch (_) { /* not JSON */ }
+  return "HTTP " + status;
+}
+
+async function api(path, options = {}) {
+  const response = await fetch(path, { ...options, headers: { ...headers(), ...(options.headers || {}) } });
+  if (!response.ok) throw new Error(describeError(response.status, await response.text()));
+  return response;
+}
+
+function choose(file) {
+  if (!file) return;
+  state.file = file;
+  $("file-name").textContent = file.name + " — " + (file.size / 1e6).toFixed(1) + " MB";
+  $("start").disabled = false;
+}
+
+$("file").addEventListener("change", (event) => choose(event.target.files[0]));
+const drop = $("drop");
+drop.addEventListener("dragover", (event) => { event.preventDefault(); drop.classList.add("over"); });
+drop.addEventListener("dragleave", () => drop.classList.remove("over"));
+drop.addEventListener("drop", (event) => {
+  event.preventDefault();
+  drop.classList.remove("over");
+  choose(event.dataTransfer.files[0]);
+});
+
+$("start").addEventListener("click", () => {
+  const form = new FormData();
+  form.append("video", state.file);
+  const request = new XMLHttpRequest();
+  request.open("POST", "/blur/" + ($("frames").checked ? "?frames=1" : ""));
+  for (const [name, value] of Object.entries(headers())) request.setRequestHeader(name, value);
+  request.upload.onprogress = (event) => {
+    if (!event.lengthComputable) return;
+    const percent = Math.round((100 * event.loaded) / event.total);
+    $("bar").style.width = percent + "%";
+    $("detail").textContent = "Upload: " + percent + " %";
+  };
+  request.onload = () => {
+    if (request.status !== 202) return fail(describeError(request.status, request.responseText));
+    state.job = JSON.parse(request.responseText).job_id;
+    $("stage").textContent = "Queued…";
+    $("bar").style.width = "0%";
+    state.timer = setInterval(poll, 1000);
+  };
+  request.onerror = () => fail("The upload failed (network error or file too large).");
+  show("progress-card");
+  $("stage").textContent = "Uploading…";
+  request.send(form);
+});
+
+const PHASES = { analyzing: "Detecting and tracking", postprocessing: "Planning the blur",
+                 rendering: "Blurring and encoding", finalizing: "Finishing" };
+
+async function poll() {
+  let job;
+  try {
+    job = await (await api("/jobs/" + state.job)).json();
+  } catch (error) {
+    return fail(error.message);
+  }
+  if (job.status === "succeeded") {
+    clearInterval(state.timer);
+    return showResult(job);
+  }
+  if (["failed", "cancelled", "expired"].includes(job.status)) {
+    const error = job.error ? job.error.message + " (" + job.error.code + ")" : job.status;
+    return fail("Processing did not succeed: " + error);
+  }
+  const progress = job.progress || {};
+  $("stage").textContent = job.status === "queued" ? "Waiting for a worker…" : (PHASES[job.phase] || "Processing") + "…";
+  $("bar").style.width = (progress.percent || 0) + "%";
+  const parts = [];
+  if (progress.percent != null) parts.push(Math.round(progress.percent) + " %");
+  if (progress.frames_total) parts.push((progress.frames_done || 0) + " / " + progress.frames_total + " frames");
+  if (job.eta_s != null) parts.push("about " + Math.max(1, Math.round(job.eta_s)) + " s left");
+  $("detail").textContent = parts.join(" · ");
+}
+
+async function objectUrl(path) {
+  const url = URL.createObjectURL(await (await api(path)).blob());
+  state.urls.push(url);
+  return url;
+}
+
+async function showResult(job) {
+  show("result-card");
+  const base = "/jobs/" + state.job;
+  try {
+    // Without a token the browser streams the video with range requests; with one, it is fetched first.
+    const videoUrl = $("token").value.trim() ? await objectUrl(base + "/video") : base + "/video";
+    $("video").src = videoUrl;
+    $("download").href = videoUrl;
+    const metadata = await (await api(base + "/metadata")).json();
+    showSigns(metadata);
+    state.metadata = metadata;
+    if ($("frames").checked) await showFrames(base);
+  } catch (error) {
+    return fail(error.message);
+  }
+  if (job.expires_at) {
+    $("expires").textContent = "Results are deleted from the server at " + new Date(job.expires_at).toLocaleString() + ".";
+  }
+}
+
+function showSigns(metadata) {
+  const signs = metadata.annotations || [];
+  const box = $("signs");
+  box.replaceChildren();
+  const title = document.createElement("h2");
+  title.textContent = signs.length + " traffic sign" + (signs.length === 1 ? "" : "s") + " found";
+  box.append(title);
+  if (!signs.length) return;
+  const table = document.createElement("table");
+  const head = table.insertRow();
+  for (const text of ["#", "Class", "Best time", "Confidence", "Position"]) {
+    const cell = document.createElement("th");
+    cell.textContent = text;
+    head.append(cell);
+  }
+  signs.forEach((annotation, index) => {
+    const video = annotation.video || {};
+    const row = table.insertRow();
+    const position = video.position ? video.position.lat.toFixed(6) + ", " + video.position.lon.toFixed(6) : "—";
+    for (const text of [index, video.class || "sign", (video.best_timestamp || 0).toFixed(1) + " s",
+                        (video.confidence_max || 0).toFixed(2), position]) {
+      row.insertCell().textContent = text;
+    }
+  });
+  box.append(table);
+}
+
+async function showFrames(base) {
+  const list = (await (await api(base + "/frames")).json()).frames || [];
+  const grid = $("frames-list");
+  grid.replaceChildren();
+  for (const entry of list) {
+    const figure = document.createElement("figure");
+    const image = document.createElement("img");
+    image.alt = "Best view of sign " + entry.n;
+    image.src = await objectUrl(entry.url);
+    const caption = document.createElement("figcaption");
+    caption.textContent = "Picture " + entry.n + (entry.timestamp != null ? " · " + Number(entry.timestamp).toFixed(1) + " s" : "");
+    figure.append(image, caption);
+    grid.append(figure);
+  }
+}
+
+$("metadata-download").addEventListener("click", () => {
+  const blob = new Blob([JSON.stringify(state.metadata, null, 2)], { type: "application/json" });
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = "blurred.metadata.json";
+  link.click();
+});
+
+async function remove() {
+  clearInterval(state.timer);
+  if (state.job) {
+    try { await api("/jobs/" + state.job, { method: "DELETE" }); } catch (_) { /* already gone */ }
+  }
+  reset();
+}
+
+function reset() {
+  for (const url of state.urls) URL.revokeObjectURL(url);
+  state.urls = [];
+  state.job = null;
+  $("video").removeAttribute("src");
+  $("bar").style.width = "0%";
+  $("detail").textContent = "";
+  show(null);
+}
+
+$("cancel").addEventListener("click", remove);
+$("delete").addEventListener("click", remove);
+$("again").addEventListener("click", reset);
+</script>
+</body>
+</html>

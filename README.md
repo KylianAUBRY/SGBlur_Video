@@ -63,6 +63,9 @@ More in the [installation guide](docs/getting-started/installation.md) and the
 
 ### As a service
 
+`uv run sgblur-video serve` (or the Compose file below), then open
+<http://localhost:8000/ui> to blur a video from your browser, or use the API:
+
 ```bash
 docker compose -f docker/docker-compose.yml up --build       # or: uv run sgblur-video serve
 curl -s -F video=@my-video.mp4 http://localhost:8000/blur/   # → {"job_id": …}

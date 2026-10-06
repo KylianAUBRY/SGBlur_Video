@@ -313,6 +313,7 @@ def signs(
 
 
 HostOption = Annotated[str, typer.Option(help="Interface to listen on (0.0.0.0 in containers).")]
+_LOCAL_HOSTS = frozenset({"127.0.0.1", "0.0.0.0"})  # noqa: S104 - only compared, never bound
 
 
 def _worker_process(settings: Settings) -> None:
@@ -352,6 +353,10 @@ def serve(
     ]
     for process in processes:
         process.start()
+    if settings.web_ui:
+        # 0.0.0.0 (containers) is reachable as localhost from the same machine.
+        shown = "localhost" if host in _LOCAL_HOSTS else host
+        typer.echo(f"Web interface: http://{shown}:{port}/ui")
     try:
         uvicorn.run(create_app(settings), host=host, port=port, log_level=settings.log_level.lower())
     finally:

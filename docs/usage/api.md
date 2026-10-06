@@ -2,7 +2,8 @@
 
 The contract is described in [HTTP API contract](../design/api.md) and
 [`openapi.yaml`](../design/openapi.yaml); a running service also serves its
-interactive schema at `/docs`.
+interactive schema at `/docs`, and a web page to blur a video from a browser at
+`/ui` (`WEB_UI=false` disables it; with `API_TOKEN`, type the token in the page).
 
 ## Start the service
 

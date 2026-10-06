@@ -49,6 +49,20 @@ paths:
                 tracker: tracktrack-recall
                 device: auto
                 queue: {queued: 0, running: 1}
+  /ui:
+    get:
+      tags: [ops]
+      summary: Web page to upload a video and download the blurred result
+      description: |
+        Static page served when `WEB_UI` is true (default). It calls this API from
+        the browser (upload, progress, video, metadata, best frames, delete) and
+        sends the bearer token typed by the user when `API_TOKEN` is set.
+      operationId: webUi
+      responses:
+        "200":
+          description: The page.
+          content:
+            text/html: {schema: {type: string}}
   /blur/:
     post:
       tags: [blur]
