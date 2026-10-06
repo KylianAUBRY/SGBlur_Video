@@ -38,7 +38,8 @@ detections*.jsonl
 # --- Python / tooling -------------------------------------------------------------
 __pycache__/
 *.py[cod]
-.venv/
+.venv
+/venv/
 build/
 dist/
 *.egg-info/

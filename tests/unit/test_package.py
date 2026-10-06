@@ -7,8 +7,12 @@ from pathlib import Path
 
 import sgblur_video
 
+SRC = str(Path(__file__).resolve().parents[2] / "src")
+
 
 def _run_python(code: str, env: dict[str, str]) -> str:
+    # Point the child at src/ explicitly: it must not depend on the editable-install .pth file.
+    env = {**env, "PYTHONPATH": SRC}
     result = subprocess.run(  # noqa: S603 - fixed interpreter and code
         [sys.executable, "-c", code], capture_output=True, text=True, env=env, check=True
     )
@@ -39,5 +43,6 @@ def test_configuration_reference_is_up_to_date(repo_root: Path) -> None:
         capture_output=True,
         text=True,
         check=False,
+        env={**os.environ, "PYTHONPATH": SRC},
     )
     assert result.returncode == 0, result.stderr

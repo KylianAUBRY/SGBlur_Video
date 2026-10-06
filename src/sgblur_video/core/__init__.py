@@ -10,6 +10,7 @@
 * ``postprocess``: linking, gap filling, smoothing, padding, margins → blur plan;
 * ``encode`` / ``render``: pass 2 (blur, encode and mux in one loop);
 * ``debug``: annotated debug video (CLI only);
+* ``frames``: best-frame JPEGs of signs (blurred, EXIF);
 * ``pipeline``: orchestration used by the CLI (and later the worker and the Detect API).
 
 Planned: ``mp4boxes`` (spherical metadata and udta transplant, step 7).

@@ -11,13 +11,17 @@ import av
 import numpy as np
 import pytest
 import yaml
+from PIL import Image
 
 from sgblur_video.config import Settings
 from sgblur_video.core.analyze import analyze
 from sgblur_video.core.detections_io import read_detections
+from sgblur_video.core.frames import BestFrameWriter
+from sgblur_video.core.geometry import iou
 from sgblur_video.core.postprocess import build_blur_plan
 from sgblur_video.core.probe import probe
 from sgblur_video.core.render import render
+from sgblur_video.semantics.annotations import build_annotations, find_sign_tracks
 from tests.privacy.synthetic import FRAMES, FakeDetector, scenario, texture_energy, write_video
 
 pytestmark = pytest.mark.privacy
@@ -108,3 +112,41 @@ def test_oracle_detects_leaks_when_protections_are_disabled(tmp_path: Path, repo
         for frame in obj.visible
     )
     assert leaks > 10
+
+
+def test_signs_are_annotated_once_and_best_frames_are_blurred(tmp_path: Path, repo_root: Path) -> None:
+    """One annotation per physical sign, short false positives dropped, best-frame JPEGs blurred."""
+    objects = scenario()
+    source = tmp_path / "synthetic.mp4"
+    write_video(source, objects)
+    settings = Settings(
+        tracker_config=repo_root / "configs" / "trackers" / "tracktrack-recall.yaml", encoder="libx264"
+    )
+    info = probe(source, settings)
+    detections_path = tmp_path / "detections.jsonl"
+    analyze(info, FakeDetector(objects), settings, detections_path, model={"name": "fake", "version": "1"})
+    detections = read_detections(detections_path)
+    tracks = find_sign_tracks(detections, settings, fps=info.fps)
+    annotations = build_annotations(
+        tracks, detections, settings, frame_size=(info.width, info.height), rotation=0
+    )
+
+    real_signs = [o for o in objects if o.cls == "sign" and len(o.detected) >= settings.sign_min_track_length]
+    assert len(annotations) == len(real_signs) == 2
+    for sign in real_signs:
+        matches = [
+            a for a in annotations if iou(tuple(map(float, a.shape)), sign.box(a.video.best_frame)) > 0.6
+        ]
+        assert len(matches) == 1, f"sign at {sign.box(0)} annotated {len(matches)} times"
+
+    plan = build_blur_plan(detections, settings, frame_size=(info.width, info.height), fps=info.fps)
+    writer = BestFrameWriter(tmp_path / "frames", annotations, info)
+    render(info, plan, tmp_path / "blurred.mp4", settings, frame_sink=writer)
+    index = writer.write_index()
+    assert index.exists()
+    assert len(writer.written) == len({a.video.best_frame for a in annotations})
+    for entry in writer.written:
+        picture = np.asarray(Image.open(tmp_path / "frames" / entry["file"]).convert("L"))
+        for obj in objects:
+            if obj.cls in ("face", "plate") and entry["frame"] in obj.visible:
+                assert texture_energy(picture, obj.box(entry["frame"])) < BLURRED_MAX_ENERGY
