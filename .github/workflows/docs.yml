@@ -1,10 +1,10 @@
 name: Publish documentation
 
-# Manual for now: GitHub Pages must first be enabled in the repository settings
-# (Settings → Pages → Source: GitHub Actions). Once it is, add
-# `push: {branches: [main]}` here to publish on every merge.
-# The documentation is still built (strict) on every push by ci.yml.
+# Publishes the documentation site on every push to main (GitHub Pages must be
+# enabled with "Source: GitHub Actions" in the repository settings).
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
