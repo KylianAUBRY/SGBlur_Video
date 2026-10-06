@@ -20,7 +20,7 @@
 Detection of faces and plates to blur, and of signs/direction signs to
 annotate, on video frames at several scales (1024, 2048 and tiles up to 4096 px).
 
-## Known limits (to be measured in step 8)
+## Known limits
 
 - Per-class metrics are not published for this checkpoint; for the previous
   YOLO11 model the face class was the weakest (recall 0.62 on 329 validation
@@ -30,3 +30,9 @@ annotate, on video frames at several scales (1024, 2048 and tiles up to 4096 px)
   profile faces, foreign plates and very small objects are expected to be
   harder. The privacy benchmark (`docs/design/testing-strategy.md`) will
   report leakage by class and size.
+- Measured in step 8 on an 8K 360° city video (Apple M4 Pro): with the
+  `standard` profile YOLO26s reports about 4.5 faces and 5 plates per frame
+  above `CONF_BLUR`, twice as many faces as YOLO11s; small objects are detected
+  on about one frame in two, which the offline linking and padding compensate
+  ([benchmarks/results](../benchmarks/results/README.md)). Leakage against
+  annotated real clips is pending.

@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted (implemented in steps 4–6)
 date: 2026-10-06
 ---
 

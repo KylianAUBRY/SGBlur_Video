@@ -1,10 +1,10 @@
 openapi: 3.1.0
 info:
   title: SGBlur-Video
-  version: 0.1.0-draft
+  version: 0.1.0
   summary: Privacy blurring of street-level videos for Panoramax.
   description: |
-    Draft contract (step 2). Blurs faces and licence plates on every frame of a
+    Contract of the HTTP API (implemented; routes checked by tests/unit/test_openapi_contract.py). Blurs faces and licence plates on every frame of a
     video and returns one Panoramax annotation per physical traffic sign.
     The Blur API (port 8000) and the Detect API (port 8001) are two separate
     applications; both are described here and separated by tags.
@@ -47,7 +47,7 @@ paths:
                 status: ok
                 model: {name: yolo26s, version: 0.1.0}
                 tracker: tracktrack-recall
-                device: mps
+                device: auto
                 queue: {queued: 0, running: 1}
   /blur/:
     post:
@@ -451,7 +451,7 @@ components:
             name: {type: string}
             version: {type: string}
         tracker: {type: string}
-        device: {type: string, enum: [cpu, cuda, mps]}
+        device: {type: string, description: "DEVICE setting: auto, cpu, mps, cuda or cuda:N"}
         queue:
           type: object
           properties:

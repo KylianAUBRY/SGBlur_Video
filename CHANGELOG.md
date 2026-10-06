@@ -7,7 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Documentation review (step 9): privacy and GDPR page written from the implemented behaviour; design documents and ADRs marked accepted with their stale statements fixed (seam stitching replaced by wrap-aware linking, package layout, metrics, error codes, `GET /` device); installation, quick start, CLI and contributing guides completed for newcomers (test markers, relative default paths, no system FFmpeg); README and French README brought up to date; status is now alpha.
+- `sgblur-video config` shows the home folder as `~` (its output is pasted in public issues); CLI help renders Markdown.
+- Invalid query parameters return `422 {"detail", "code": "invalid_parameter"}` like every other API error.
+
+### Removed
+
+- `WORKER_CONCURRENCY`, which nothing read: parallelism comes from the number of worker processes (`serve --workers`, `worker`).
+
 ### Added
+
+- A test checks that both HTTP applications serve exactly the routes of `docs/design/openapi.yaml`.
 
 - Benchmarks (step 8): privacy dataset tooling (`annotate export` cuts a clip, encodes a ≤ 3840 px CVAT proxy and a model pre-annotation in "CVAT for video 1.1"; `annotate import` converts the corrected CVAT export into full-resolution ground truth), coverage-based leakage metrics (per class, size and readability, tracks ever leaked, longest and transient exposures, re-identifications, over-blur) with the gate of `benchmarks/privacy-thresholds.yaml`; `benchmark privacy` with setting sweeps, `benchmark trackers` replaying tracking on cached detections, `benchmark speed` per model, device and detection profile; JSON and Markdown reports without file names; the privacy benchmark also runs on the synthetic scenario in CI.
 - 360° and telemetry (step 7): circular padding of detection passes and tiles across the 0°/360° seam, wrap-aware merge, linking, rendering and sign shapes; allow-listed MP4 box transplant restoring Spherical Video V1/V2 metadata, the display matrix and GoPro camera boxes; GoPro GPMF GPS parser (`GPS5`, `GPS9`) geolocating sign annotations and best-frame EXIF; free GoPro sample fetched for tests; synthetic seam scenario with negative control in the privacy oracle.

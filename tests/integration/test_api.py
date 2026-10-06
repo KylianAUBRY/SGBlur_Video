@@ -150,6 +150,9 @@ def test_input_errors(settings: Settings, video_bytes: bytes) -> None:
     assert raw_360.status_code == 415
     missing = client.post("/blur/", files={"picture": ("a.mp4", video_bytes, "video/mp4")})
     assert (missing.status_code, missing.json()["code"]) == (422, "invalid_parameter")
+    bad_query = client.post("/blur/", params={"keep": "2"}, files={"video": ("a.mp4", video_bytes)})
+    assert (bad_query.status_code, bad_query.json()["code"]) == (422, "invalid_parameter")
+    assert bad_query.json()["detail"].startswith("keep:")
     callback = client.post(
         "/blur/", params={"callback_url": "http://169.254.169.254/"}, files={"video": ("a.mp4", video_bytes)}
     )

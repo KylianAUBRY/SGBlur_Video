@@ -1,4 +1,4 @@
-"""Command-line interface (``sgblur-video``).
+"""Command-line interface (`sgblur-video`).
 
 The CLI runs the same pipeline as the HTTP service, without any server. Debug
 outputs (annotated videos) are **only** available here, never through the API.
@@ -28,6 +28,7 @@ app = typer.Typer(
     help="Blur faces and licence plates in street-level videos and annotate traffic signs (Panoramax).",
     no_args_is_help=True,
     add_completion=False,
+    rich_markup_mode="markdown",
 )
 models_app = typer.Typer(help="Inspect and download detection models.", no_args_is_help=True)
 annotate_app = typer.Typer(help="Build the manually annotated privacy dataset.", no_args_is_help=True)
@@ -98,7 +99,7 @@ def _fail(exc: Exception) -> NoReturn:
 
 
 def _expected_errors(*extra: type[Exception]) -> tuple[type[Exception], ...]:
-    """Errors reported to the user as messages rather than tracebacks (plus ``extra``)."""
+    """Errors reported to the user as messages rather than tracebacks (plus `extra`)."""
     from sgblur_video.bench.clips import ClipError
     from sgblur_video.bench.dataset import DatasetError
     from sgblur_video.core.detections_io import DetectionsFormatError
@@ -124,14 +125,18 @@ def version() -> None:
 
 @app.command(name="config")
 def show_config() -> None:
-    """Print the effective configuration as JSON (secrets are masked)."""
+    """Print the effective configuration as JSON (secrets are masked, the home folder is shown as `~`).
+
+    The output is meant to be pasted in public issues: it must not reveal secrets or the user name.
+    """
     settings = get_settings()
-    typer.echo(json.dumps(settings.model_dump(mode="json"), indent=2, sort_keys=True))
+    text = json.dumps(settings.model_dump(mode="json"), indent=2, sort_keys=True)
+    typer.echo(text.replace(json.dumps(str(Path.home()))[1:-1], "~"))
 
 
 @models_app.command(name="list")
 def models_list() -> None:
-    """List the models of the registry (``MODELS_FILE``)."""
+    """List the models of the registry (`MODELS_FILE`)."""
     settings = get_settings()
     try:
         registry = load_registry(settings.models_file)
@@ -146,7 +151,7 @@ def models_list() -> None:
 def models_download(
     name: Annotated[str | None, typer.Argument(help="Model name (default: all).")] = None,
 ) -> None:
-    """Download model weights into ``MODELS_DIR`` and verify their SHA-256."""
+    """Download model weights into `MODELS_DIR` and verify their SHA-256."""
     settings = _setup()
     try:
         registry = load_registry(settings.models_file)
@@ -177,8 +182,8 @@ def blur(
 ) -> None:
     """Detect, track and blur a video in one command (passes 1 and 2).
 
-    Writes the blurred video, ``<output>.metadata.json`` (Panoramax annotations of
-    traffic signs) and, with ``--debug``, ``<output>.debug.mp4``.
+    Writes the blurred video, `<output>.metadata.json` (Panoramax annotations of
+    traffic signs) and, with `--debug`, `<output>.debug.mp4`.
     """
     from sgblur_video.core.pipeline import run_blur
 
@@ -213,7 +218,7 @@ def detect(
     tracker: TrackerOption = None,
     max_frames: MaxFramesOption = None,
 ) -> None:
-    """Run pass 1 only and write ``detections.jsonl``."""
+    """Run pass 1 only and write `detections.jsonl`."""
     from sgblur_video.core.pipeline import run_detect
 
     settings = _setup(tracker)
@@ -242,9 +247,9 @@ def render(
         bool, typer.Option("--allow-partial", help="Render even if detections.jsonl is incomplete.")
     ] = False,
 ) -> None:
-    """Run post-processing and pass 2 from an existing ``detections.jsonl``.
+    """Run post-processing and pass 2 from an existing `detections.jsonl`.
 
-    Writes the blurred video and ``<output>.metadata.json`` (sign annotations).
+    Writes the blurred video and `<output>.metadata.json` (sign annotations).
     """
     from sgblur_video.core.pipeline import run_render, write_metadata
 
@@ -284,7 +289,7 @@ def signs(
 ) -> None:
     """Detect, track and deduplicate traffic signs; write one Panoramax annotation per sign.
 
-    No video is written. With ``--frames-dir``, the best view of each sign is
+    No video is written. With `--frames-dir`, the best view of each sign is
     saved as a JPEG in which faces and plates are blurred.
     """
     from sgblur_video.core.pipeline import run_signs
@@ -311,7 +316,7 @@ HostOption = Annotated[str, typer.Option(help="Interface to listen on (0.0.0.0 i
 
 
 def _worker_process(settings: Settings) -> None:
-    """Entry point of a worker process started by ``serve``."""
+    """Entry point of a worker process started by `serve`."""
     from sgblur_video.jobs.worker import Worker
 
     logging.basicConfig(level=settings.log_level, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -361,7 +366,7 @@ def serve_detect(
     host: HostOption = "127.0.0.1",
     port: Annotated[int, typer.Option(help="Port of the Detect API.")] = 8001,
 ) -> None:
-    """Run the Detect API (remote analysis for a Blur API configured with ``DETECT_URL``)."""
+    """Run the Detect API (remote analysis for a Blur API configured with `DETECT_URL`)."""
     import uvicorn
 
     from sgblur_video.api.detect_api import create_app
@@ -406,8 +411,8 @@ def annotate_export(
 ) -> None:
     """Cut a clip, build an annotation proxy and a pre-annotation for CVAT.
 
-    Writes ``clips/<id>/clip.mp4``, ``proxy.mp4`` and ``preannotation.xml`` in the
-    dataset folder and adds the clip to ``manifest.yaml``.
+    Writes `clips/<id>/clip.mp4`, `proxy.mp4` and `preannotation.xml` in the
+    dataset folder and adds the clip to `manifest.yaml`.
     """
     from sgblur_video.bench.annotate import export_clip, preannotate_clip
     from sgblur_video.bench.dataset import Dataset
@@ -479,7 +484,7 @@ def annotate_import(
     clip_id: ClipIdOption,
     annotator: Annotated[str, typer.Option(help="Who annotated the clip (recorded in the manifest).")] = "",
 ) -> None:
-    """Convert a CVAT export into the privacy dataset format (``ground_truth.json``)."""
+    """Convert a CVAT export into the privacy dataset format (`ground_truth.json`)."""
     from sgblur_video.bench.annotate import import_annotation
     from sgblur_video.bench.dataset import Dataset
 
@@ -570,7 +575,7 @@ def benchmark_trackers(
 ) -> None:
     """Compare trackers on the same detections (detection runs once, tracking is replayed).
 
-    Detections of ``--video`` files are cached in ``~/.cache/sgblur-video/bench`` by default.
+    Detections of `--video` files are cached in `~/.cache/sgblur-video/bench` by default.
     """
     from sgblur_video.bench.cache import DetectionCache
     from sgblur_video.bench.dataset import Dataset

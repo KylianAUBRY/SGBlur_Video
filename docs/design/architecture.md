@@ -1,7 +1,7 @@
 # Architecture
 
-> Status: **draft for validation (step 2)**. Decisions referenced here are recorded
-> in [`docs/adr/`](../adr/README.md). Measurements come from spikes run on
+> Status: **accepted** (step 2), implemented in steps 4–8. Decisions referenced
+> here are recorded in [`docs/adr/`](../adr/README.md). Measurements come from spikes run on
 > 2026-10-06 on an Apple M4 Pro (see [§ Performance budget](#performance-budget)).
 
 ## Goals in one paragraph
@@ -44,7 +44,7 @@ flowchart LR
 | Worker | `sgblur_video.jobs.worker` | Claims queued jobs and runs each one in a fresh child process: analysis, post-processing, rendering, remux, cleanup. |
 | Detect API | `sgblur_video.api.detect_api` | Optional remote analysis service: video in, `detections.jsonl` out (streamed). Same code as the in-process path. |
 | Job store | `sgblur_video.jobs.store` | SQLite database (WAL mode) holding job rows, progress and timings. No video data. |
-| CLI | `sgblur_video.cli` | `blur`, `detect`, `render`, `signs`, `worker`, `serve`, `annotate`, `benchmark`. Uses the same pipeline without any server. |
+| CLI | `sgblur_video.cli` | `blur`, `detect`, `render`, `signs`, `serve`, `worker`, `serve-detect`, `models`, `config`, `version`, `annotate`, `benchmark`. Uses the same pipeline without any server. |
 
 ### Deployment modes
 
@@ -69,7 +69,7 @@ flowchart TD
     end
     jsonl --> pp
     subgraph pp["Post-processing (pure Python, no GPU)"]
-        stitch["360° seam stitching"] --> gaps["Gap interpolation"]
+        stitch["Offline linking of fragments<br/>(wrap-aware on 360°)"] --> gaps["Gap interpolation"]
         gaps --> pad["Temporal padding<br/>+ spatial margin"]
         pad --> plan2["Blur plan per frame"]
         stitch --> signs["Sign deduplication<br/>→ one annotation per track"]
@@ -182,7 +182,7 @@ Consequences:
 
 - An 8K 360° clip of 96 s (2893 frames) needs ≈ 16 min of analysis plus ≈ 3.5 min of encoding natively on this machine (≈ 0.05× real time). Detection, not decoding, dominates.
 - Without a hardware encoder (Docker on macOS, CPU-only Linux) 8K encoding alone takes 20–40 min for the same clip. Documented as a known limitation; CPU mode targets ≤ 4K.
-- Throughput levers, in order: drop the tile pass (`DETECT_PROFILE=fast`), TensorRT/CoreML export, NVENC. They are evaluated in step 8.
+- Throughput levers: drop the tile pass (`DETECT_PROFILE=fast`, measured in step 8: about 3× fewer faces on 8K, so not privacy-safe), TensorRT/CoreML export and NVENC (not measured: no NVIDIA GPU was available, and export formats would need their own accuracy check).
 
 ## Technology choices
 
@@ -198,18 +198,20 @@ Consequences:
 | Forge/CI | GitHub, GitHub Actions, GitHub Pages (MkDocs Material) | maintainer decision 2026-10-06 |
 | Licence | MIT for this code; AGPL-3.0 runtime dependency documented | [ADR-0006](../adr/0006-licence.md) |
 
-## Package layout (target for step 3)
+## Package layout
 
 ```
 src/sgblur_video/
-├── api/          blur_api.py, detect_api.py, schemas.py, errors.py
-├── core/         probe.py, decode.py, detect.py, track.py, postprocess.py,
-│                 render.py, encode.py, remux.py, mp4boxes.py, pipeline.py
-├── privacy/      blur.py (methods & shapes), keep.py (encrypted regions), cleanup.py
+├── api/          blur_api.py, detect_api.py, upload.py (streamed multipart),
+│                 errors.py, metrics.py (Prometheus)
+├── core/         probe.py, decode.py, device.py, detect.py, track.py, analyze.py (pass 1),
+│                 detections_io.py, postprocess.py, encode.py, render.py (pass 2),
+│                 debug.py, frames.py (best frames), mp4boxes.py, geometry.py, pipeline.py
+├── privacy/      blur.py (methods & shapes), keep.py (encrypted regions)
 ├── semantics/    annotations.py (tracks → Panoramax annotations)
 ├── video360/     wrap.py (wrap-around geometry across the 0°/360° seam)
 ├── telemetry/    gpmf.py (KLV parser), gps.py (GPS track → position at timestamp)
-├── jobs/         store.py, worker.py, janitor.py
+├── jobs/         store.py, runner.py (one job), worker.py (worker and janitor)
 ├── bench/        dataset.py, cvat.py, clips.py, annotate.py (privacy dataset),
 │                 metrics.py, cache.py, runs.py, report.py (benchmarks)
 ├── models.py     registry loading, download, auto-selection

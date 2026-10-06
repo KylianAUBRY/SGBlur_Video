@@ -11,7 +11,7 @@
 * ``encode`` / ``render``: pass 2 (blur, encode and mux in one loop);
 * ``debug``: annotated debug video (CLI only);
 * ``frames``: best-frame JPEGs of signs (blurred, EXIF);
-* ``pipeline``: orchestration used by the CLI (and later the worker and the Detect API).
-
-Planned: ``mp4boxes`` (spherical metadata and udta transplant, step 7).
+* ``mp4boxes``: allow-listed transplant of spherical metadata, rotation and camera boxes;
+* ``geometry``: box arithmetic shared by every step;
+* ``pipeline``: orchestration used by the CLI, the job worker and the Detect API.
 """

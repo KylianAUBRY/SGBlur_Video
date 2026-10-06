@@ -86,7 +86,6 @@ privacy note must not be changed without running the privacy benchmark
 | `MAX_VIDEO_DURATION_S` | integer | `1800` | Video duration limit in seconds. | — |
 | `SYNC_MAX_DURATION_S` | integer | `30` | Maximum duration accepted with `sync=1`, in seconds (0 disables `sync=1`). | — |
 | `ACCEPTED_CONTAINERS` | list of string | `mp4,mov` | Accepted containers, comma-separated. | — |
-| `WORKER_CONCURRENCY` | integer | `1` | Jobs processed in parallel by one worker (one accelerator: keep 1). | — |
 | `QUEUE_MAX` | integer | `20` | Queued jobs before new submissions get `503 queue_full`. | — |
 | `JOB_TIMEOUT_S` | integer | `21600` | Hard time limit per job; the job process is killed and its files deleted. | — |
 | `CALLBACK_ALLOWED_HOSTS` | list of string | empty | Hosts allowed in `callback_url`, comma-separated. Empty disables callbacks. | — |

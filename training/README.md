@@ -4,10 +4,12 @@ SGBlur-Video **does not train its own detector** for now
 ([ADR-0009](../docs/adr/0009-model-registry-and-class-policy.md)): it uses the
 YOLO26 model published by SGBlur, trained by the Panoramax team on their data.
 
-This folder will contain:
+This folder contains `MODEL_CARD.md`: what we know about the model in use.
 
-- `MODEL_CARD.md` — what we know about the model in use (see below);
-- `evaluate.py` (step 8) — evaluation of a registry model on the annotated privacy dataset.
+To evaluate a registry model, use the benchmarks
+([docs/guides/benchmarks.md](../docs/guides/benchmarks.md)):
+`sgblur-video benchmark privacy --dataset … --model <name>` measures leakage on
+the annotated privacy dataset, `sgblur-video benchmark speed` its speed.
 
 Fine-tuning would only become necessary if the privacy benchmark shows
 systematic misses that the pipeline cannot compensate (e.g. faces seen from

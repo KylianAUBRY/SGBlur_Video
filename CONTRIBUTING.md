@@ -21,12 +21,24 @@ git clone https://github.com/KylianAUBRY/SGBlur_Video.git
 cd SGBlur_Video
 uv sync                         # creates .venv with dev and docs tools
 uv run pre-commit install       # lint, format, types and docs checks on commit
-uv run pytest                   # unit tests
+uv run pytest -m "not integration"   # fast, offline: unit tests and the synthetic privacy oracle
+uv run pytest                   # everything (about 30 s once the downloads are cached)
 ```
 
-On Linux, the lock file installs CPU-only PyTorch wheels (NVIDIA support comes
-with the GPU image in step 6). On macOS, if `import sgblur_video` fails right after the first
-`uv sync`, see [troubleshooting](docs/guides/troubleshooting.md).
+Test folders and markers:
+
+| Folder | Marker | Content |
+|---|---|---|
+| `tests/unit` | — | Pure logic: geometry, post-processing, formats, store, CVAT, metrics… |
+| `tests/privacy` | `privacy` | Synthetic privacy oracle and benchmark: the CI privacy gate. No network. |
+| `tests/integration` | `integration` (and `slow`) | Real model, real media and the HTTP API. Downloads the model (~20 MB, GitLab) and a free GoPro sample (GitHub) once, into `~/.cache/sgblur-video`. |
+
+Each test is stopped after 300 s (`pytest-timeout`), and warnings are errors.
+
+On Linux, the lock file installs CPU-only PyTorch wheels; NVIDIA GPUs are used
+through the `gpu` Docker image ([installation](docs/getting-started/installation.md#nvidia-gpu)).
+On macOS, if `import sgblur_video` fails right after the first `uv sync`, see
+[troubleshooting](docs/guides/troubleshooting.md).
 
 ## Before opening a pull request
 
@@ -55,7 +67,7 @@ uv run python scripts/gen_config_reference.py
 - **Ultralytics** is pinned exactly; it is only used through the adapters in `sgblur_video.core` so that upgrades are tested in one place.
 - **Logs** never contain file names, upload paths, coordinates or images.
 - **Tests**: unit tests for every behaviour; post-processing and blur logic must be testable without GPU and without real videos. Coverage ≥ 85 % on `core/`, `privacy/` and `semantics/`.
-- **Commits**: small and focused, imperative subject line (`Add seam stitching for 360° tracks`).
+- **Commits**: small and focused, with a [Conventional Commits](https://www.conventionalcommits.org/) prefix and an imperative subject (`feat: link sign fragments across the 360° seam`, `fix: …`, `docs: …`).
 - **Changelog**: add a line under `Unreleased` in [CHANGELOG.md](CHANGELOG.md) for user-visible changes.
 
 ## Pull request process
@@ -67,6 +79,6 @@ uv run python scripts/gen_config_reference.py
 
 ## Project structure
 
-See [docs/design/architecture.md](docs/design/architecture.md#package-layout-target-for-step-3)
+See [docs/design/architecture.md](docs/design/architecture.md#package-layout)
 for the package layout and [docs/adr/](docs/adr/README.md) for the decisions
 behind it.

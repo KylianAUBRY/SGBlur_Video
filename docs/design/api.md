@@ -1,9 +1,10 @@
 # HTTP API contract
 
-> Status: **draft for validation (step 2)**. The machine-readable contract is
-> [`openapi.yaml`](openapi.yaml) (OpenAPI 3.1). In step 6 the FastAPI app
-> generates its own schema from Pydantic models, and a test checks it against
-> this draft so the two cannot drift silently.
+> Status: **accepted** (step 2), implemented in step 6. The machine-readable
+> contract is [`openapi.yaml`](openapi.yaml) (OpenAPI 3.1); a test
+> (`tests/unit/test_openapi_contract.py`) checks that both applications serve
+> exactly its routes. FastAPI's generated schema (`/openapi.json`) is less
+> detailed: responses are built as plain JSON.
 
 Two applications, as in SGBlur:
 
@@ -62,7 +63,7 @@ Responses:
 - `status`: `queued`, `running`, `succeeded`, `failed`, `cancelled`, `expired`.
 - `phase` (while running): `analyzing`, `postprocessing`, `rendering`, `finalizing`.
 - `progress.percent` weights analysis and rendering by their measured share of the job duration (initially *70 / 30*); `eta_s` uses the moving frame rate of the current phase.
-- `error`: `{"code": "decode_error", "message": "…"}` without paths or user data.
+- `error`: `{"code": "…", "message": "…"}` without paths or user data; codes: `detection_failed`, `processing_error`, `timeout`, `worker_crash`, `cancelled`, plus the input codes of `POST /blur/` (`unsupported_media_type`, `unsupported_projection`, `video_too_long`).
 - `404 job_not_found`. Once results are deleted the status is `expired` (`200`); the result routes then answer `410 job_expired`.
 
 ## `GET /jobs/{job_id}/video`
@@ -163,17 +164,22 @@ returns `204`.
 ```json
 {"name": "SGBlur-Video", "version": "0.1.0", "status": "ok",
  "model": {"name": "yolo26s", "version": "0.1.0"}, "tracker": "tracktrack-recall",
- "device": "mps", "queue": {"queued": 0, "running": 1}}
+ "device": "auto", "queue": {"queued": 0, "running": 1}}
 ```
+
+`device` is the `DEVICE` setting (`auto`, `cpu`, `mps`, `cuda`, `cuda:N`): the
+accelerator is resolved in each job process, not by the API.
 
 ## `GET /metrics`
 
 Prometheus text format, computed from the job store (no multi-process
-registry): `sgblur_video_jobs_total{status}`, `sgblur_video_jobs_in_progress`,
-`sgblur_video_queue_length`, `sgblur_video_job_duration_seconds` (histogram),
-`sgblur_video_frames_processed_total{phase}`, `sgblur_video_processing_fps{phase}`,
-`sgblur_video_accelerator_memory_bytes{device}` (reported by the worker
-heartbeat), `sgblur_video_blurred_boxes_total{source}`.
+registry): `sgblur_video_jobs{status}` (jobs known by the store),
+`sgblur_video_jobs_in_progress`, `sgblur_video_queue_length`,
+`sgblur_video_job_duration_seconds` (histogram of finished jobs),
+`sgblur_video_frames_processed_total`, `sgblur_video_processing_fps` (last
+finished job). The Detect API exposes `sgblur_video_detector_busy`.
+Accelerator memory and per-source box counters, considered in the design, are
+not implemented.
 
 ## Detect API — `POST /detect/`
 
