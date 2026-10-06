@@ -1,0 +1,39 @@
+name: Publish documentation
+
+# Manual for now: GitHub Pages must first be enabled in the repository settings
+# (Settings → Pages → Source: GitHub Actions). Once it is, add
+# `push: {branches: [main]}` here to publish on every merge.
+# The documentation is still built (strict) on every push by ci.yml.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
+      - run: uv run --frozen --only-group docs mkdocs build --strict
+      - uses: actions/configure-pages@v6
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5

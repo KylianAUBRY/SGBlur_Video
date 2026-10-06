@@ -1,0 +1,29 @@
+# sgblur-video default tracker (provisional, see docs/adr/0003-default-tracker.md).
+#
+# Derived from Ultralytics 8.4.173 `tracktrack.yaml`, tuned for recall: faces far
+# from a moving camera rarely score above 0.6, and every tracked low-score box
+# helps gap filling. Values marked "tune" are revisited in the step-8 benchmark.
+#
+# Extension (not an Ultralytics key): `track_buffer_s` is converted to the
+# Ultralytics `track_buffer` frame count with the video frame rate, because
+# Ultralytics counts frames regardless of fps.
+
+tracker_type: tracktrack
+track_high_thresh: 0.35   # tune — Ultralytics default 0.6
+track_low_thresh: 0.10    # tune — Ultralytics default 0.25; boxes below CONF_DETECT never reach the tracker
+new_track_thresh: 0.40    # tune — Ultralytics default 0.7
+track_buffer_s: 2.0       # seconds a lost track stays alive (Ultralytics default: 30 frames)
+match_thresh: 0.7
+lost_match_thr: 0.0
+iou_weight: 0.5
+reid_weight: 0.5
+conf_weight: 0.1
+angle_weight: 0.05
+penalty_p: 0.2
+penalty_q: 0.4
+reduce_step: 0.05
+tai_thr: 0.55
+min_track_len: 2          # tune — Ultralytics default 3; orphans are blurred anyway
+gmc_method: sparseOptFlow # moving camera
+with_reid: False
+model: auto

@@ -1,0 +1,12 @@
+# ByteTrack with recall-oriented thresholds, shipped for the tracker benchmark
+# (docs/adr/0003-default-tracker.md). No camera-motion compensation.
+# `track_buffer_s` is an sgblur-video extension converted to frames with the
+# video frame rate.
+
+tracker_type: bytetrack
+track_high_thresh: 0.35
+track_low_thresh: 0.10
+new_track_thresh: 0.40
+track_buffer_s: 2.0
+match_thresh: 0.8
+fuse_score: True

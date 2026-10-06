@@ -1,0 +1,109 @@
+site_name: SGBlur-Video
+site_description: Privacy blurring of street-level videos (faces, licence plates) with traffic-sign annotations, for Panoramax.
+site_url: https://kylianaubry.github.io/SGBlur_Video/
+repo_url: https://github.com/KylianAUBRY/SGBlur_Video
+repo_name: KylianAUBRY/SGBlur_Video
+edit_uri: edit/main/docs/
+copyright: Code released under the MIT licence — see the Licence page for runtime dependencies.
+
+theme:
+  name: material
+  language: en
+  features:
+    - navigation.sections
+    - navigation.indexes
+    - navigation.top
+    - navigation.footer
+    - content.code.copy
+    - search.highlight
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: teal
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: teal
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [src]
+          options:
+            docstring_style: google
+            members_order: source
+            show_source: false
+            show_root_heading: true
+            show_signature_annotations: true
+            separate_signature: true
+            filters: ["!^_"]
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - def_list
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+
+# Fail the strict build on broken links and anchors.
+validation:
+  omitted_files: warn
+  absolute_links: warn
+  unrecognized_links: warn
+  anchors: warn
+
+nav:
+  - Home: index.md
+  - Getting started:
+      - Installation: getting-started/installation.md
+      - Quick start: getting-started/quickstart.md
+  - Usage:
+      - Command line: usage/cli.md
+      - HTTP API: usage/api.md
+  - Concepts:
+      - Tracking and post-processing: concepts/tracking.md
+      - Privacy and GDPR: concepts/privacy.md
+      - Annotations and Panoramax: concepts/annotations.md
+  - Guides:
+      - Models and new YOLO versions: guides/models.md
+      - FAQ and troubleshooting: guides/troubleshooting.md
+  - Reference:
+      - Configuration: reference/configuration.md
+      - Python API: reference/python-api.md
+  - Design:
+      - Architecture: design/architecture.md
+      - Pipeline: design/pipeline.md
+      - detections.jsonl format: design/detections-format.md
+      - HTTP API contract: design/api.md
+      - Configuration (design): design/configuration.md
+      - Testing strategy: design/testing-strategy.md
+      - Step 1 analysis: research/step-1-analysis.md
+  - Decisions (ADR):
+      - adr/README.md
+      - adr/0001-two-pass-architecture.md
+      - adr/0002-own-detection-loop-with-ultralytics-trackers.md
+      - adr/0003-default-tracker.md
+      - adr/0004-irreversible-blur.md
+      - adr/0005-job-queue.md
+      - adr/0006-licence.md
+      - adr/0007-360-video.md
+      - adr/0008-video-io-and-metadata-preservation.md
+      - adr/0009-model-registry-and-class-policy.md
+      - adr/0010-privacy-testing-strategy.md
+  - Licence: license.md
