@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Traffic signs (step 5): offline deduplication into one annotation per physical sign (minimum length, `CONF_SIGN`), best frame by score × area, Panoramax annotations with SGBlur tags and a `video` extension, metadata JSON written next to the output, best-frame JPEGs (blurred, EXIF date) with `frames.json`; CLI `signs`, `--frames-dir` on `blur` and `render`.
 - Core pipeline (step 4): probe (projection, rotation, copyable streams), multi-scale detection plan with tiles for 8K, cross-pass merge, Ultralytics tracker adapter (one tracker per class group), `detections.jsonl` v1 reader/writer, offline linking of fragments (ADR-0011), gap filling, envelope smoothing, temporal padding, margins, ellipse/rectangle shapes, irreversible blur on YUV planes (8/10 bit), encoder selection (VideoToolbox, NVENC, x264/x265), single-loop render with audio/GPMF stream copy and timecode recreation, annotated debug video.
 - CLI: `blur`, `detect`, `render`, `models download` (hash-verified).
 - Tests: synthetic privacy oracle with negative control, media integration (VFR timestamps, bit-exact audio), real-model smoke test, CLI end-to-end with a fake detector; CI coverage gate (≥ 85 % on core, privacy, semantics).

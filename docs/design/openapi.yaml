@@ -237,7 +237,6 @@ paths:
                       observations: 61
                       confidence_max: 0.874
                       confidence_mean: 0.731
-                      position: null
                 video:
                   width: 7680
                   height: 3840
@@ -279,13 +278,12 @@ paths:
                 frames:
                   - n: 0
                     url: /jobs/3f0d2c3e-8a51-4c1f-9a4e-0d6f8f4f5b21/frames/0.jpg
-                    annotation_index: 0
                     frame: 431
                     timestamp: 14.367
                     width: 7680
                     height: 3840
-                    shape: [2201, 1502, 2291, 1591]
-                    position: null
+                    annotation_indices: [0, 4]
+                    shapes: [[2201, 1502, 2291, 1591], [5120, 1700, 5180, 1760]]
         "404": {$ref: "#/components/responses/NotFound"}
         "409": {$ref: "#/components/responses/NotReady"}
         "410": {$ref: "#/components/responses/Expired"}
@@ -559,18 +557,21 @@ components:
           additionalProperties: true
     BestFrame:
       type: object
+      description: One JPEG per distinct best frame; signs sharing a best frame share a picture.
       properties:
         n: {type: integer}
         url: {type: string}
-        annotation_index: {type: integer}
         frame: {type: integer}
         timestamp: {type: number}
         width: {type: integer}
         height: {type: integer}
-        shape:
+        annotation_indices:
           type: array
           items: {type: integer}
-        position:
-          oneOf:
-            - type: "null"
-            - $ref: "#/components/schemas/Position"
+        shapes:
+          type: array
+          items:
+            type: array
+            items: {type: integer}
+            minItems: 4
+            maxItems: 4

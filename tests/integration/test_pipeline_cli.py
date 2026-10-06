@@ -102,3 +102,35 @@ def test_incomplete_or_foreign_detections_are_refused(tmp_path: Path, video: Pat
         container.mux(stream.encode(None))
     with pytest.raises(DetectionsFormatError, match="another size"):
         run_render(other, detections, tmp_path / "out2.mp4", settings, allow_partial=True)
+
+
+@pytest.mark.usefixtures("fake_model")
+def test_signs_command_writes_annotations_and_best_frames(tmp_path: Path, video: Path) -> None:
+    out = tmp_path / "signs.json"
+    frames_dir = tmp_path / "frames"
+    result = runner.invoke(app, ["signs", str(video), "--out", str(out), "--frames-dir", str(frames_dir)])
+    assert result.exit_code == 0, result.output
+    metadata = json.loads(out.read_text())
+    assert metadata["service_name"] == "SGBlur-Video"
+    assert len(metadata["annotations"]) == 2
+    assert metadata["annotations"][0]["semantics"][0] == {"key": "osm|traffic_sign", "value": "yes"}
+    index = json.loads((frames_dir / "frames.json").read_text())["frames"]
+    assert index
+    assert all((frames_dir / entry["file"]).exists() for entry in index)
+
+
+@pytest.mark.usefixtures("fake_model")
+def test_blur_writes_metadata_next_to_the_video(
+    tmp_path: Path, video: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("ENCODER", "libx264")
+    output = tmp_path / "out.mp4"
+    result = runner.invoke(app, ["blur", str(video), str(output), "--frames-dir", str(tmp_path / "frames")])
+    assert result.exit_code == 0, result.output
+    metadata = json.loads((tmp_path / "out.metadata.json").read_text())
+    assert metadata["blurring_id"]
+    assert metadata["stats"]["tracks"]["signage"] == 2
+    assert metadata["video"]["frame_count"] == FRAMES
+    summary = json.loads(result.output[result.output.index("{") :])
+    assert summary["signs"] == 2
+    assert summary["best_frames"] >= 1

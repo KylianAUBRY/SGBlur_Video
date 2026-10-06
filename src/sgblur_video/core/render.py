@@ -33,6 +33,8 @@ from sgblur_video.privacy.blur import blur_frame
 logger = logging.getLogger(__name__)
 
 ProgressCallback = Callable[[int, int | None], None]
+#: Receives every output frame (after blurring) with its index, e.g. to save best frames.
+FrameSink = Callable[[int, av.VideoFrame], None]
 
 # Container-level keys that the muxer writes itself.
 _SKIPPED_METADATA = {"major_brand", "minor_version", "compatible_brands", "encoder"}
@@ -115,6 +117,7 @@ def render(
     *,
     max_frames: int | None = None,
     debug: tuple[Path, DebugOverlay] | None = None,
+    frame_sink: FrameSink | None = None,
     progress: ProgressCallback | None = None,
 ) -> RenderStats:
     """Blur the video according to ``plan`` and write ``output``.
@@ -126,6 +129,7 @@ def render(
         settings: Blur method, cells, encoder settings.
         max_frames: Stop after this many frames (must match the analysis).
         debug: Optional ``(path, overlay)`` to also write an annotated debug video.
+        frame_sink: Optional callback receiving each blurred frame (best-frame pictures).
         progress: Called with ``(frames_done, frames_total)``.
 
     Returns:
@@ -173,6 +177,8 @@ def render(
                     rng=rng,
                 )
                 stats.blurred_frames += 1
+            if frame_sink is not None:
+                frame_sink(stats.frames, frame)
             encoded = frame.reformat(
                 format=choice.pix_fmt, src_color_range=choice.color_range, dst_color_range=choice.color_range
             )

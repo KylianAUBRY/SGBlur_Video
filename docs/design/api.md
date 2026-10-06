@@ -118,6 +118,9 @@ Same structure as SGBlur's `metadata` part, with documented extensions:
 }
 ```
 
+`video.position` is present only when the video's telemetry provides GPS (step 7);
+`blurring_id` is absent when nothing was blurred and kept (e.g. the `signs` command).
+
 Compatibility with the Panoramax picture contract
 ([blur API spec](https://docs.panoramax.fr/backend/install/deep_dive/blur_api/)):
 
@@ -137,15 +140,17 @@ Only when the job was created with `frames=1`.
 
 ```json
 {"frames": [
-  {"n": 0, "url": "/jobs/3f0d…/frames/0.jpg", "annotation_index": 0, "frame": 431,
-   "timestamp": 14.367, "width": 7680, "height": 3840, "shape": [2201, 1502, 2291, 1591],
-   "position": null}
+  {"n": 0, "url": "/jobs/3f0d…/frames/0.jpg", "frame": 431, "timestamp": 14.367,
+   "width": 7680, "height": 3840, "annotation_indices": [0, 4],
+   "shapes": [[2201, 1502, 2291, 1591], [5120, 1700, 5180, 1760]]}
 ]}
 ```
 
+One JPEG per distinct best frame (signs sharing a best frame share a picture).
 Each JPEG is a frame of the **blurred** output (faces and plates in it are
 blurred), in display orientation, with EXIF `DateTimeOriginal` and GPS when
-known, and the same annotation shape in its own pixel coordinates.
+known; `shapes` are the annotation shapes in its own pixel coordinates.
+Implemented in step 5 as `frames.json` + JPEGs (`--frames-dir` in the CLI).
 
 ## `DELETE /jobs/{job_id}`
 

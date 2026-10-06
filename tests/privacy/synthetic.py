@@ -85,7 +85,25 @@ def scenario() -> list[SyntheticObject]:
         detected=set(range(FRAMES)),
         score=lambda _f: 0.9,
     )
-    return [walking_face, flickering_plate, fast_small_face, sign]
+    flickering_sign = SyntheticObject(
+        "sign",
+        (36, 36),
+        # Away from the extrapolated paths of the faces: padding after a face leaves
+        # follows its trajectory and may blur whatever lies there (over-blur by design).
+        lambda _f: (470, 110),
+        visible=range(FRAMES),
+        detected=set(range(0, FRAMES, 3)),  # one physical sign seen every third frame
+        score=lambda _f: 0.7,
+    )
+    false_sign = SyntheticObject(
+        "sign",
+        (20, 20),
+        lambda _f: (20, 320),
+        visible=range(50, 54),
+        detected={50, 51, 52},  # too short to be a real sign (SIGN_MIN_TRACK_LENGTH)
+        score=lambda _f: 0.9,
+    )
+    return [walking_face, flickering_plate, fast_small_face, sign, flickering_sign, false_sign]
 
 
 def _background() -> npt.NDArray[np.uint8]:

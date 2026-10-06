@@ -38,7 +38,8 @@ detections*.jsonl
 # --- Python / tooling -------------------------------------------------------------
 __pycache__/
 *.py[cod]
-.venv/
+.venv
+/venv/
 build/
 dist/
 *.egg-info/
@@ -54,3 +55,8 @@ htmlcov/
 .DS_Store
 .idea/
 .vscode/
+
+# --- iCloud Drive conflict copies ("name 2.ext", "folder 2") -----------------------
+# The repository may live in an iCloud-synced folder (Desktop, Documents).
+* 2
+* 2.*

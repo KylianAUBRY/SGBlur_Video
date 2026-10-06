@@ -60,6 +60,14 @@ def _planned(step: str) -> NoReturn:
     raise typer.Exit(code=2)
 
 
+FramesDirOption = Annotated[
+    Path | None,
+    typer.Option(
+        "--frames-dir",
+        file_okay=False,
+        help="Write one blurred JPEG per sign best view here (Panoramax upload).",
+    ),
+]
 MaxFramesOption = Annotated[
     int | None, typer.Option("--max-frames", min=1, help="Process only the first N frames (development).")
 ]
@@ -167,13 +175,19 @@ def blur(
         Path | None,
         typer.Option("--keep-detections", dir_okay=False, help="Also save detections.jsonl here."),
     ] = None,
+    frames_dir: FramesDirOption = None,
     max_frames: MaxFramesOption = None,
 ) -> None:
-    """Detect, track and blur a video in one command (passes 1 and 2)."""
+    """Detect, track and blur a video in one command (passes 1 and 2).
+
+    Writes the blurred video, ``<output>.metadata.json`` (Panoramax annotations of
+    traffic signs) and, with ``--debug``, ``<output>.debug.mp4``.
+    """
     from sgblur_video.core.pipeline import run_blur
 
     settings = _setup(tracker)
     debug_output = output_video.with_name(f"{output_video.stem}.debug.mp4") if debug else None
+    metadata_path = output_video.with_name(f"{output_video.stem}.metadata.json")
     with tempfile.TemporaryDirectory(prefix="sgblur-video-") as scratch:
         detections_path = keep_detections or Path(scratch) / "detections.jsonl"
         try:
@@ -182,6 +196,8 @@ def blur(
                 output_video,
                 settings,
                 detections_path=detections_path,
+                metadata_path=metadata_path,
+                frames_dir=frames_dir,
                 model_name=model,
                 debug_output=debug_output,
                 max_frames=max_frames,
@@ -224,12 +240,16 @@ def render(
     detections: Annotated[Path, typer.Argument(exists=True, dir_okay=False, help="detections.jsonl.")],
     output_video: OutputVideo,
     debug: Annotated[bool, typer.Option("--debug", help="Also write an annotated debug video.")] = False,
+    frames_dir: FramesDirOption = None,
     allow_partial: Annotated[
         bool, typer.Option("--allow-partial", help="Render even if detections.jsonl is incomplete.")
     ] = False,
 ) -> None:
-    """Run post-processing and pass 2 from an existing ``detections.jsonl``."""
-    from sgblur_video.core.pipeline import run_render
+    """Run post-processing and pass 2 from an existing ``detections.jsonl``.
+
+    Writes the blurred video and ``<output>.metadata.json`` (sign annotations).
+    """
+    from sgblur_video.core.pipeline import run_render, write_metadata
 
     settings = _setup()
     debug_output = output_video.with_name(f"{output_video.stem}.debug.mp4") if debug else None
@@ -240,12 +260,20 @@ def render(
             output_video,
             settings,
             debug_output=debug_output,
+            frames_dir=frames_dir,
             allow_partial=allow_partial,
             progress=_Progress("rendering"),
         )
     except _expected_errors() as exc:
         _fail(exc)
-    typer.echo(json.dumps({"blur": result.plan.stats, "frames": result.render.frames}, indent=2))
+    write_metadata(result.metadata, output_video.with_name(f"{output_video.stem}.metadata.json"))
+    summary = {
+        "blur": result.plan.stats,
+        "frames": result.render.frames,
+        "signs": len(result.metadata.annotations),
+        "best_frames": len(result.frames),
+    }
+    typer.echo(json.dumps(summary, indent=2))
 
 
 @app.command()
@@ -253,9 +281,33 @@ def signs(
     input_video: InputVideo,
     out: Annotated[Path, typer.Option("--out", dir_okay=False, help="Annotations JSON to write.")],
     model: ModelOption = None,
+    tracker: TrackerOption = None,
+    frames_dir: FramesDirOption = None,
+    max_frames: MaxFramesOption = None,
 ) -> None:
-    """Detect, track and deduplicate traffic signs; write Panoramax annotations."""
-    _planned("step 5")
+    """Detect, track and deduplicate traffic signs; write one Panoramax annotation per sign.
+
+    No video is written. With ``--frames-dir``, the best view of each sign is
+    saved as a JPEG in which faces and plates are blurred.
+    """
+    from sgblur_video.core.pipeline import run_signs
+
+    settings = _setup(tracker)
+    with tempfile.TemporaryDirectory(prefix="sgblur-video-") as scratch:
+        try:
+            metadata = run_signs(
+                input_video,
+                out,
+                settings,
+                detections_path=Path(scratch) / "detections.jsonl",
+                frames_dir=frames_dir,
+                model_name=model,
+                max_frames=max_frames,
+                progress=_Progress("analysis"),
+            )
+        except _expected_errors() as exc:
+            _fail(exc)
+    typer.echo(f"{len(metadata.annotations)} signs written to {out}")
 
 
 @app.command()

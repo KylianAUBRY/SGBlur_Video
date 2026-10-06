@@ -96,6 +96,10 @@ step 5).
 - Padding uses a constant-velocity model: an object that changes direction
   abruptly at the very start or end of its appearance relies on the growing
   padded box to stay covered.
+- Padding follows the predicted path of an object that just left the field of
+  view, so it can blur a few frames of whatever lies on that path — sometimes
+  part of a sign. This over-blurring is accepted by design (privacy first); the
+  sign itself is still annotated from its other frames.
 - The 0°/360° seam of equirectangular videos is handled in step 7.
 
 ## Checking it on your videos
