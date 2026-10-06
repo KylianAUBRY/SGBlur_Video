@@ -8,10 +8,12 @@ plates and traffic signs in dashcam, bike, pedestrian and 360° videos,
 **irreversibly blurs faces and plates on every frame where they appear**, and
 returns **one Panoramax annotation per physical traffic sign**.
 
-!!! warning "Pre-alpha"
-    The design is complete and the project skeleton is in place. The processing
-    pipeline is being implemented (roadmap step 4). Pages marked *planned* are
-    placeholders that will be written with the corresponding step.
+!!! warning "Alpha"
+    The pipeline, the HTTP API, 360° support and the benchmarks are
+    implemented. The privacy defaults are checked on synthetic videos on every
+    push; their validation on annotated real footage is in progress (see
+    [Benchmarks](guides/benchmarks.md)). Do not rely on it for publication
+    without reviewing the output.
 
 ```mermaid
 flowchart LR

@@ -77,8 +77,8 @@ See [HTTP API](docs/usage/api.md).
 | 5 | Traffic signs: deduplication, annotations, best frames | ✅ done |
 | 6 | Asynchronous HTTP API, Docker | ✅ done |
 | 7 | 360° seam handling, telemetry, metadata preservation | ✅ done |
-| 8 | Benchmarks (trackers, models, devices) and default tuning | ⏳ next |
-| 9 | Documentation review | |
+| 8 | Benchmarks (trackers, models, devices) and default tuning | ✅ done (leakage on real footage: awaiting annotated clips) |
+| 9 | Documentation review | ⏳ next |
 
 v1 is built during a time-limited hackathon. Deliberately left for **v2**:
 private vulnerability reporting (GitHub), CAMM/DJI/Insta360 telemetry

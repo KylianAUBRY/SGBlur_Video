@@ -70,6 +70,13 @@ It reproduces SGBlur's multi-scale logic, adapted to video:
 `DETECT_PROFILE`: `standard` (table above, default), `fast` (global passes
 only), `thorough` (tiles cover the full height, for nadir/zenith).
 
+Measured on 8 frames of an 8K equirectangular city video, Apple M4 Pro, YOLO26s
+(`benchmarks/results/2026-10-06-speed-8k-equirect-m4pro.json`): `fast` runs at
+0.06 s/frame (MPS) but finds about **3× fewer faces** than `standard`
+(1.4 vs 4.5 per frame at score ≥ `CONF_BLUR`); `standard` takes 0.43 s/frame
+(MPS) or 1.9 s/frame (CPU); `thorough` adds about 8 % more faces for 3.2× the
+time. `fast` is therefore not a privacy-safe choice for 8K video.
+
 **360° circular padding.** For equirectangular frames each pass input is padded
 horizontally by `P = round(w × EQUIRECT_PAD_RATIO)` (*1/16*: 480 px at 8K)
 with pixels copied from the opposite edge, so an object straddling the 0°/360°

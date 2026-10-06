@@ -47,12 +47,41 @@ def test_config_masks_secrets(monkeypatch: pytest.MonkeyPatch) -> None:
     assert json.loads(result.output)["api_name"] == "SGBlur-Video"
 
 
-def test_planned_commands_exit_with_code_2(tmp_path: Path) -> None:
+def test_benchmark_commands(tmp_path: Path, repo_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    result = runner.invoke(app, ["benchmark", "--help"])
+    assert result.exit_code == 0
+    for command in ("privacy", "trackers", "speed"):
+        assert command in result.output
+    result = runner.invoke(app, ["benchmark", "trackers"])
+    assert result.exit_code == 1
+    assert "give --video and/or --dataset" in result.output
+    monkeypatch.setenv("MODELS_FILE", str(repo_root / "models" / "registry.yaml"))
+    thresholds = str(repo_root / "benchmarks" / "privacy-thresholds.yaml")
+    result = runner.invoke(
+        app, ["benchmark", "privacy", "--dataset", str(tmp_path), "--thresholds", thresholds]
+    )
+    assert result.exit_code == 1
+    assert "no annotated clip" in result.output
+    result = runner.invoke(
+        app,
+        ["benchmark", "privacy", "--dataset", str(tmp_path), "--thresholds", thresholds, "--sweep", "X"],
+    )
+    assert result.exit_code == 1
+
+
+def test_annotate_errors_are_reported(tmp_path: Path) -> None:
+    export = tmp_path / "export.xml"
+    export.write_text("<annotations/>", encoding="utf-8")
+    result = runner.invoke(app, ["annotate", "import", str(export), "--dataset", str(tmp_path), "--id", "a"])
+    assert result.exit_code == 1
+    assert "no clip 'a'" in result.output
     video = tmp_path / "in.mp4"
-    video.write_bytes(b"")
-    result = runner.invoke(app, ["benchmark", "--dataset", str(tmp_path)])
-    assert result.exit_code == 2
-    assert "step 8" in result.output
+    video.write_bytes(b"not a video")
+    result = runner.invoke(
+        app, ["annotate", "export", str(video), "--dataset", str(tmp_path), "--id", "Bad Id"]
+    )
+    assert result.exit_code == 1
+    assert "invalid clip id" in result.output
 
 
 def test_invalid_video_is_reported_without_traceback(tmp_path: Path) -> None:

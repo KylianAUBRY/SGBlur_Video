@@ -1,8 +1,10 @@
 # Testing strategy
 
-> Status: **draft for validation (step 2)**. Decision record:
+> Status: **accepted**. Decision record:
 > [ADR-0010](../adr/0010-privacy-testing-strategy.md). Maintainer choice
 > (2026-10-06): **A** (synthetic oracle) + **D** (manually annotated ground truth).
+> A runs on every push since step 4; the tooling of D (`annotate`, `benchmark`)
+> exists since step 8, see the [benchmarks guide](../guides/benchmarks.md).
 
 ## Why ground truth is needed
 
@@ -57,6 +59,13 @@ least once, and 0 blurred sign pixels outside face/plate overlaps.
 
 ## D — Annotated real clips (privacy benchmark)
 
+*Implemented in step 8: `sgblur_video.bench`, commands `annotate export|import`
+and `benchmark privacy|trackers|speed`. The metrics below are computed on the
+blur plan (what the renderer is asked to blur); the oracle A guarantees that
+the renderer blurs every planned region. The same benchmark also runs on the
+synthetic scenario in CI (`tests/privacy/test_bench_synthetic.py`) with exact
+ground truth.*
+
 ### Dataset
 
 - **Source**: the maintainer's own videos (Q360 8K equirect, GoPro HERO12), later possibly clips from contributors. They contain identifiable people: they are personal data and **never enter git** or CI logs.
@@ -65,7 +74,7 @@ least once, and 0 blurred sign pixels outside face/plate overlaps.
 
 ### Annotation workflow
 
-1. `sgblur-video annotate export <video> --start 30 --duration 15` cuts the clip, writes a proxy at ≤ 3840 px wide (8K is too heavy for annotation tools; coordinates are scaled back ×2) and a **pre-annotation** from the model at a very low threshold.
+1. `sgblur-video annotate export <video> --dataset DIR --id ID --start 30 --duration 15` cuts the clip, writes a proxy at ≤ 3840 px wide (8K is too heavy for annotation tools; coordinates are scaled back ×2) and a **pre-annotation** from the model. *Changed in step 8:* the brief suggested a very low threshold, but on 8K 360° clips that gave 600–800 mostly spurious tracks for 10 s; the pre-annotation keeps tracks with a best score ≥ 0.25 detected on ≥ 5 frames, and the annotator draws what is missing.
 2. The annotator opens it in **CVAT** (MIT, runs locally with Docker) in track mode: boxes are adjusted on key frames and CVAT interpolates in between, so a 15 s clip takes roughly 15–30 min.
 3. Instructions: draw a box on **every** face (any orientation where part of the face is visible, including profile, partially hidden, tiny or blurry) and **every** plate (readable or not); tick `readable` if a human could recognise the person / read the plate. Pay special attention to objects the pre-annotation **missed**: they are exactly what we measure. Do not annotate signs.
 4. `sgblur-video annotate import` converts the CVAT export ("CVAT for video 1.1" XML) to the dataset format and records its SHA-256 in the manifest.

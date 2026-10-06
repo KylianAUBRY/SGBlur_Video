@@ -1,7 +1,6 @@
 # Command line
 
-Commands are listed by `sgblur-video --help`. Those not implemented yet exit
-with code 2 and say which roadmap step brings them. Errors on bad inputs (not a
+Commands are listed by `sgblur-video --help`. Errors on bad inputs (not a
 video, unsupported 360° format, incomplete `detections.jsonl`…) exit with code 1
 and a one-line message.
 
@@ -19,10 +18,12 @@ uv run sgblur-video blur input.mp4 output.mp4 --max-frames 90   # quick try on t
 | `sgblur-video detect IN --out detections.jsonl` | Pass 1 only | ✅ 4 |
 | `sgblur-video render IN detections.jsonl OUT [--debug] [--frames-dir DIR] [--allow-partial]` | Post-processing and pass 2; also writes `OUT.metadata.json` | ✅ 4–5 |
 | `sgblur-video signs IN --out signs.json [--frames-dir DIR]` | Sign annotations only (no video written) | ✅ 5 |
-| `sgblur-video benchmark --dataset DIR` | Benchmarks | 8 |
+| `sgblur-video benchmark privacy --dataset DIR [--sweep NAME=v1,v2]` | Leakage against the annotated dataset; exit code 1 if the gate fails | ✅ 8 |
+| `sgblur-video benchmark trackers [--video F] [--dataset DIR] [--tracker YAML]` | Trackers compared on the same detections | ✅ 8 |
+| `sgblur-video benchmark speed IN [--model] [--device] [--profile]` | Detection speed per model, device and profile | ✅ 8 |
 | `sgblur-video serve [--host] [--port] [--workers]` / `worker` / `serve-detect` | Blur API with workers / job worker / Detect API | ✅ 6 |
 | `sgblur-video models list` / `download` | Model registry | ✅ 3 / 4 |
-| `sgblur-video annotate export` / `import` | Privacy dataset tooling | 8 |
+| `sgblur-video annotate export IN --dataset DIR --id ID [--start] [--duration]` / `preannotate` / `import XML --dataset DIR --id ID` | Build the annotated privacy dataset with CVAT ([guide](../guides/benchmarks.md)) | ✅ 8 |
 | `sgblur-video config` / `version` | Effective configuration / version | ✅ 3 |
 
 `--debug` writes an annotated video (boxes, classes, track ids, interpolated
