@@ -318,16 +318,67 @@ def benchmark(
     _planned("step 8")
 
 
+HostOption = Annotated[str, typer.Option(help="Interface to listen on (0.0.0.0 in containers).")]
+
+
+def _worker_process(settings: Settings) -> None:
+    """Entry point of a worker process started by ``serve``."""
+    from sgblur_video.jobs.worker import Worker
+
+    logging.basicConfig(level=settings.log_level, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    Worker(settings).run_forever()
+
+
 @app.command()
 def worker() -> None:
-    """Run the job worker (claims jobs from the job store)."""
-    _planned("step 6")
+    """Run the job worker: claims queued jobs from the job store and processes them."""
+    from sgblur_video.jobs.worker import Worker
+
+    Worker(_setup()).run_forever()
 
 
 @app.command()
-def serve() -> None:
-    """Run the Blur API with one worker (development and native single-host mode)."""
-    _planned("step 6")
+def serve(
+    host: HostOption = "127.0.0.1",
+    port: Annotated[int, typer.Option(help="Port of the Blur API.")] = 8000,
+    workers: Annotated[int, typer.Option(min=0, help="Worker processes to start alongside the API.")] = 1,
+) -> None:
+    """Run the Blur API with worker processes (native single-host mode)."""
+    import multiprocessing
+
+    import uvicorn
+
+    from sgblur_video.api.blur_api import create_app
+
+    settings = _setup()
+    context = multiprocessing.get_context("spawn")
+    # Not daemonic: a worker starts one child process per job.
+    processes = [
+        context.Process(target=_worker_process, args=(settings,), name=f"worker-{i}") for i in range(workers)
+    ]
+    for process in processes:
+        process.start()
+    try:
+        uvicorn.run(create_app(settings), host=host, port=port, log_level=settings.log_level.lower())
+    finally:
+        for process in processes:
+            process.terminate()
+        for process in processes:
+            process.join(timeout=10)
+
+
+@app.command(name="serve-detect")
+def serve_detect(
+    host: HostOption = "127.0.0.1",
+    port: Annotated[int, typer.Option(help="Port of the Detect API.")] = 8001,
+) -> None:
+    """Run the Detect API (remote analysis for a Blur API configured with ``DETECT_URL``)."""
+    import uvicorn
+
+    from sgblur_video.api.detect_api import create_app
+
+    settings = _setup()
+    uvicorn.run(create_app(settings), host=host, port=port, log_level=settings.log_level.lower())
 
 
 @annotate_app.command(name="export")

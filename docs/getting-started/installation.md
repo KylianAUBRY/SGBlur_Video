@@ -1,8 +1,5 @@
 # Installation
 
-!!! note "Planned"
-    Native installation works for development today. Docker images and the
-    Panoramax `docker compose` setup arrive with roadmap step 6.
 
 ## Native (macOS Apple Silicon, Linux)
 
@@ -24,14 +21,50 @@ encoder, which makes 8K videos several times slower.
 `uv sync` installs CPU-only PyTorch wheels on Linux (a few hundred MB instead of
 several GB of CUDA libraries).
 
-## NVIDIA GPU
-
-*Planned (step 6).*
-
 ## Docker
 
-*Planned (step 6): `Dockerfile.cpu`, `Dockerfile.gpu`, `docker-compose.yml`.*
+One Dockerfile with two targets (`docker/Dockerfile`): `cpu` (default) and
+`gpu`. The default model is downloaded and verified at build time, the
+service runs as a non-root user and stores everything in the `/data` volume.
+
+```bash
+docker compose -f docker/docker-compose.yml up --build      # API on :8000 + one worker
+curl -s -F video=@my-video.mp4 http://localhost:8000/blur/
+```
+
+Configure it with environment variables in the Compose file (see the
+[configuration reference](../reference/configuration.md)), e.g.
+`KEEP_SECRET_KEY`, `CALLBACK_ALLOWED_HOSTS`, `API_TOKEN`, `RESULT_TTL_MINUTES`.
+
+## NVIDIA GPU
+
+Requires the NVIDIA driver and the NVIDIA Container Toolkit on the host. CUDA
+comes with the PyTorch wheels (CUDA 12.6 build); NVENC/NVDEC come from the
+host driver.
+
+```bash
+docker compose -f docker/docker-compose.yml -f docker/docker-compose.gpu.yml up --build
+```
+
+!!! warning "Untested"
+    The GPU image builds the same way as the CPU one, but it has not been run
+    on NVIDIA hardware yet (none was available during development).
+
+## Split deployment (detection on a GPU machine)
+
+On the GPU machine: `docker compose -f docker/docker-compose.yml -f docker/docker-compose.gpu.yml --profile split up detect`.
+On the API machine: set `DETECT_URL=http://gpu-machine:8001` for the `worker`
+service. Videos travel over the network: keep both machines on a private network.
 
 ## With a Panoramax instance
 
-*Planned (step 6).*
+Panoramax does not send videos to its blurring service yet (picture uploads
+only). Two ways to use SGBlur-Video today:
+
+1. Blur videos with the API or the CLI, then upload the **best-frame
+   pictures** (`frames=1`) to Panoramax with `isBlurred=true` and their
+   annotations — see [Annotations and Panoramax](../concepts/annotations.md).
+2. Follow the upstream discussion on video support
+   ([panoramax/server/api#369](https://gitlab.com/panoramax/server/api/-/work_items/369)):
+   the API contract was designed so that `API_BLUR_URL` can point to it once
+   videos are accepted.

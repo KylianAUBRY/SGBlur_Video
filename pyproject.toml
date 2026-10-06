@@ -65,6 +65,8 @@ Changelog = "https://github.com/KylianAUBRY/SGBlur_Video/blob/main/CHANGELOG.md"
 dev = [
     "pytest>=9.1",
     "pytest-cov>=7.1",
+    "pytest-timeout>=2.4",
+    "httpx2>=2.13",  # FastAPI/Starlette test client
     "ruff>=0.16.10",
     "mypy>=2.4",
     "pre-commit>=4.6",
@@ -119,7 +121,7 @@ convention = "google"
 extend-immutable-calls = ["typer.Argument", "typer.Option"]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S101", "D100", "D103", "D104", "ANN"]
+"tests/**" = ["S101", "S105", "S106", "D100", "D103", "D104", "ANN"]
 "scripts/**" = ["T20"]
 
 [tool.mypy]
@@ -148,6 +150,8 @@ markers = [
     "slow: takes more than a few seconds",
 ]
 filterwarnings = ["error"]
+# A hanging test (a server or worker that never stops) must fail, not block CI.
+timeout = 300
 
 [tool.coverage.run]
 source = ["sgblur_video"]

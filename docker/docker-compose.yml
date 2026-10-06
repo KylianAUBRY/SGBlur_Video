@@ -1,0 +1,51 @@
+# SGBlur-Video with Docker Compose.
+#
+#   docker compose -f docker/docker-compose.yml up --build          # CPU: API + worker
+#   curl -F video=@my-video.mp4 http://localhost:8000/blur/
+#
+# NVIDIA GPU:   docker compose -f docker/docker-compose.yml -f docker/docker-compose.gpu.yml up --build
+# Split mode:   run the `detect` service on a GPU machine and set DETECT_URL on the worker.
+# On macOS, Docker cannot use the Apple GPU nor VideoToolbox: prefer the native install there.
+
+x-common: &common
+  image: sgblur-video:${SGBLUR_TARGET:-cpu}
+  build:
+    context: ..
+    dockerfile: docker/Dockerfile
+    target: ${SGBLUR_TARGET:-cpu}
+  volumes:
+    - data:/data
+  environment: &environment
+    API_NAME: SGBlur-Video
+    RESULT_TTL_MINUTES: "60"
+    # KEEP_SECRET_KEY: change-me        # enables keep=1 (encrypted regions)
+    # CALLBACK_ALLOWED_HOSTS: panoramax # enables callback_url to these hosts
+    # API_TOKEN: change-me              # requires "Authorization: Bearer …"
+  restart: unless-stopped
+
+services:
+  api:
+    <<: *common
+    command: ["sgblur-video", "serve", "--host", "0.0.0.0", "--workers", "0"]
+    ports:
+      - "8000:8000"
+
+  worker:
+    <<: *common
+    command: ["sgblur-video", "worker"]
+    healthcheck:
+      disable: true
+    depends_on:
+      - api
+
+  detect:
+    <<: *common
+    profiles: ["split"]
+    command: ["sgblur-video", "serve-detect", "--host", "0.0.0.0"]
+    ports:
+      - "8001:8001"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/', timeout=4)"]
+
+volumes:
+  data:

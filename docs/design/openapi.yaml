@@ -436,7 +436,8 @@ components:
           type: string
           enum: [file_too_large, unsupported_media_type, unsupported_projection, video_too_long, sync_too_long,
                  invalid_parameter, keep_unavailable, callback_not_allowed, queue_full, detector_busy,
-                 job_not_found, job_not_ready, job_expired, unauthorized]
+                 job_not_found, job_not_ready, job_failed, job_expired, frames_not_requested,
+                 frame_not_found, unauthorized]
     Health:
       type: object
       required: [name, version, status, model]

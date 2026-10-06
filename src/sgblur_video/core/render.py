@@ -26,7 +26,7 @@ from sgblur_video.config import Settings
 from sgblur_video.core.debug import DEBUG_MAX_WIDTH, DebugOverlay
 from sgblur_video.core.decode import to_bgr
 from sgblur_video.core.encode import EncoderChoice, choose_encoder
-from sgblur_video.core.postprocess import BlurPlan
+from sgblur_video.core.postprocess import BlurPlan, BlurShape
 from sgblur_video.core.probe import VideoInfo
 from sgblur_video.privacy.blur import blur_frame
 
@@ -35,6 +35,8 @@ logger = logging.getLogger(__name__)
 ProgressCallback = Callable[[int, int | None], None]
 #: Receives every output frame (after blurring) with its index, e.g. to save best frames.
 FrameSink = Callable[[int, av.VideoFrame], None]
+#: Receives the original (unblurred) frame and the shapes about to be blurred (``keep=1``).
+RegionSink = Callable[[int, av.VideoFrame, list[BlurShape]], None]
 
 # Container-level keys that the muxer writes itself.
 _SKIPPED_METADATA = {"major_brand", "minor_version", "compatible_brands", "encoder"}
@@ -118,6 +120,7 @@ def render(
     max_frames: int | None = None,
     debug: tuple[Path, DebugOverlay] | None = None,
     frame_sink: FrameSink | None = None,
+    region_sink: RegionSink | None = None,
     progress: ProgressCallback | None = None,
 ) -> RenderStats:
     """Blur the video according to ``plan`` and write ``output``.
@@ -130,6 +133,7 @@ def render(
         max_frames: Stop after this many frames (must match the analysis).
         debug: Optional ``(path, overlay)`` to also write an annotated debug video.
         frame_sink: Optional callback receiving each blurred frame (best-frame pictures).
+        region_sink: Optional callback receiving original frames with their shapes (``keep=1``).
         progress: Called with ``(frames_done, frames_total)``.
 
     Returns:
@@ -168,6 +172,8 @@ def render(
 
         def encode(frame: av.VideoFrame) -> None:
             shapes = plan.shapes(stats.frames)
+            if shapes and region_sink is not None:
+                region_sink(stats.frames, frame, shapes)
             if shapes:
                 frame = blur_frame(
                     frame,

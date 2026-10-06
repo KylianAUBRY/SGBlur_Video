@@ -86,11 +86,13 @@ class BlurPlan:
         frame_count: Number of frames covered by the plan.
         frames: Shapes per frame index (frames without shapes are absent).
         stats: Counters for the job metadata.
+        chain_scores: Best detection score of each blurred chain (``keep=1`` keeps low-score chains).
     """
 
     frame_count: int
     frames: dict[int, list[BlurShape]] = field(default_factory=dict)
     stats: dict[str, int] = field(default_factory=dict)
+    chain_scores: dict[str, float] = field(default_factory=dict)
 
     def shapes(self, index: int) -> list[BlurShape]:
         """Shapes to blur on frame ``index`` (empty list if none)."""
@@ -358,6 +360,7 @@ def build_blur_plan(
         max_distance=settings.link_max_distance,
     )
     stats: Counter[str] = Counter(fragments=len(fragments))
+    chain_scores: dict[str, float] = {}
     regions: dict[tuple[int, str], tuple[Box, Source, str]] = {}
 
     def add(frame: int, key: str, box: Box, source: Source, cls: str) -> None:
@@ -377,6 +380,7 @@ def build_blur_plan(
             continue
         cls = chain.cls
         stats[f"chains_{cls}"] += 1
+        chain_scores[chain.id] = max(o.score for o in observations)
         isolated = len(observations) == 1
         for segment in _segments(observations, max_gap_frames):
             frames, boxes, observed = _densify(segment)
@@ -404,7 +408,7 @@ def build_blur_plan(
                 )
 
     frame_width, frame_height = frame_size
-    plan = BlurPlan(frame_count=frame_count)
+    plan = BlurPlan(frame_count=frame_count, chain_scores=chain_scores)
     for (frame, key), (box, source, cls) in sorted(regions.items(), key=lambda item: item[0]):
         enlarged = expand(box, settings.blur_box_margin)
         if area(clip(enlarged, frame_width, frame_height)) <= 0:

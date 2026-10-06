@@ -99,7 +99,7 @@ def test_derived_directories() -> None:
 
 
 def test_secrets_are_masked_in_dumps() -> None:
-    settings = Settings(keep_secret_key="super-secret", api_token="token-value")  # noqa: S106
+    settings = Settings(keep_secret_key="super-secret", api_token="token-value")
     dumped = json.dumps(settings.model_dump(mode="json"))
     assert "super-secret" not in dumped
     assert "token-value" not in dumped

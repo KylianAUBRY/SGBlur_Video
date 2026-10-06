@@ -1,0 +1,19 @@
+# Keep media, outputs, models and local environments out of the build context.
+**/*.mp4
+**/*.MP4
+**/*.mov
+**/*.MOV
+**/*.jpg
+**/*.png
+**/*.pt
+data/
+site/
+venv/
+.venv
+.git/
+**/__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+**/* 2
+**/* 2.*

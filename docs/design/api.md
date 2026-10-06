@@ -63,7 +63,7 @@ Responses:
 - `phase` (while running): `analyzing`, `postprocessing`, `rendering`, `finalizing`.
 - `progress.percent` weights analysis and rendering by their measured share of the job duration (initially *70 / 30*); `eta_s` uses the moving frame rate of the current phase.
 - `error`: `{"code": "decode_error", "message": "…"}` without paths or user data.
-- `404 job_not_found`; `410 job_expired` once files are gone.
+- `404 job_not_found`. Once results are deleted the status is `expired` (`200`); the result routes then answer `410 job_expired`.
 
 ## `GET /jobs/{job_id}/video`
 
