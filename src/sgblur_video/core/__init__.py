@@ -1,13 +1,16 @@
-"""Video pipeline: probe, two-pass processing and remux (steps 4 and 7).
+"""Video pipeline (see ``docs/design/pipeline.md``).
 
-Planned modules (see ``docs/design/pipeline.md``):
-
-* ``probe``: read container/stream properties, projection, rotation, telemetry;
+* ``probe``: container/stream properties, projection, rotation, copyable streams;
 * ``decode``: frame iterator with exact timestamps;
-* ``detect``: detection plan (global passes, tiles, 360° padding) and cross-pass merge;
+* ``device``: CUDA / MPS / CPU selection;
+* ``detect``: detection plan (global passes, tiles), YOLO adapter, cross-pass merge;
 * ``track``: Ultralytics tracker adapter (one tracker per class group);
-* ``postprocess``: gap filling, padding, margins, blur plan, sign tracks;
-* ``render`` / ``encode`` / ``remux``: blur, encode and mux in one loop;
-* ``mp4boxes``: allow-listed MP4 box transplant (spherical metadata, udta);
-* ``pipeline``: orchestration used by the CLI, the worker and the Detect API.
+* ``detections_io``: ``detections.jsonl`` reader and writer;
+* ``analyze``: pass 1;
+* ``postprocess``: linking, gap filling, smoothing, padding, margins → blur plan;
+* ``encode`` / ``render``: pass 2 (blur, encode and mux in one loop);
+* ``debug``: annotated debug video (CLI only);
+* ``pipeline``: orchestration used by the CLI (and later the worker and the Detect API).
+
+Planned: ``mp4boxes`` (spherical metadata and udta transplant, step 7).
 """

@@ -107,9 +107,14 @@ ignore = [
     "D105",  # magic methods do not need a docstring
     "D107",  # __init__ is documented in the class docstring (Google style)
 ]
+# Greek letters and typographic symbols are intended in docs (σ, ×, –).
+allowed-confusables = ["σ", "×", "–"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
+
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = ["typer.Argument", "typer.Option"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S101", "D100", "D103", "D104", "ANN"]
@@ -122,12 +127,18 @@ files = ["src"]
 plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
-module = ["ultralytics.*", "av.*", "cv2.*", "lap.*"]
+# Ultralytics' annotations are partial and change between patch releases: our adapters
+# (core/detect.py, core/track.py) treat it as untyped and are covered by contract tests.
+module = ["ultralytics", "ultralytics.*", "lap", "lap.*"]
+follow_imports = "skip"
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 minversion = "9.0"
 testpaths = ["tests"]
+# Import the package from src/ directly: on macOS, Python 3.14 ignores the editable-install
+# .pth file when the virtualenv gets the "hidden" file flag (see docs/guides/troubleshooting.md).
+pythonpath = ["src", "."]
 addopts = ["-ra", "--strict-markers", "--strict-config"]
 markers = [
     "integration: needs model weights and media fixtures (downloaded on demand)",

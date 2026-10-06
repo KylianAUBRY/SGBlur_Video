@@ -4,8 +4,8 @@
 synthetic_oracle:
   # Objects reported at least once by the scripted fake detector.
   max_leaked_object_frames: 0
-  # Sign pixels blurred outside face/plate overlaps.
-  max_blurred_sign_pixels: 0
+  # Frames where a sign (not overlapping a face or plate) lost its texture.
+  max_blurred_sign_frames: 0
 
 annotated_dataset:
   # An object-frame is protected when this share of its ground-truth box is blurred.

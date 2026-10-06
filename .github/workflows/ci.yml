@@ -46,7 +46,17 @@ jobs:
         with:
           enable-cache: true
       - run: uv sync --no-group docs
-      - run: uv run --no-sync pytest --cov --cov-report=term --cov-report=xml
+      # The real-model smoke test downloads the SGBlur weights (~20 MB) once per registry change.
+      - uses: actions/cache@v5
+        with:
+          path: ~/.cache/sgblur-video/models
+          key: models-${{ hashFiles('models/registry.yaml') }}
+      - name: Unit, privacy (synthetic oracle) and integration tests
+        run: uv run --no-sync pytest --cov --cov-report=term --cov-report=xml
+      - name: Coverage >= 85 % on core, privacy and semantics
+        run: >-
+          uv run --no-sync coverage report --fail-under=85
+          --include='src/sgblur_video/core/*,src/sgblur_video/privacy/*,src/sgblur_video/semantics/*'
       - run: uv run --no-sync python scripts/gen_config_reference.py --check
 
   docs:
