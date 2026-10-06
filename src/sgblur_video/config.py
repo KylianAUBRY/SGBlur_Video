@@ -129,7 +129,12 @@ class Settings(BaseSettings):
     )
     api_token: SecretStr | None = Field(
         None,
-        description="If set, required as a bearer token on every route except `/` and `/metrics`.",
+        description="If set, required as a bearer token on every route except `/`, `/ui` and `/metrics`.",
+        json_schema_extra=_doc("Service identity"),
+    )
+    web_ui: bool = Field(
+        True,
+        description="Serve a web page at `/ui` to upload a video and download the blurred result.",
         json_schema_extra=_doc("Service identity"),
     )
 

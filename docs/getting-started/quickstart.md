@@ -22,6 +22,16 @@ from environment variables, e.g. `CONF_BLUR=0.1 uv run sgblur-video blur …`
 On an Apple M4 Pro (MPS), end-to-end processing (analysis and rendering) runs
 at about 10 frames/s for 1080p and 1.5 to 2 frames/s for 8K 360° video.
 
+## Web page
+
+```bash
+uv run sgblur-video serve
+```
+
+Open <http://localhost:8000/ui>, drop a video, follow the progress, then watch
+or download the blurred video, the list of traffic signs and their best
+pictures. The page only calls the HTTP API below; `WEB_UI=false` disables it.
+
 ## HTTP API
 
 ```bash

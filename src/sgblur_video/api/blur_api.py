@@ -15,11 +15,19 @@ import secrets
 import shutil
 import uuid
 from collections.abc import AsyncIterator
+from importlib import resources
 from pathlib import Path
 from typing import Annotated, Any
 
 from fastapi import Depends, FastAPI, Header, Query, Request
-from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Response, StreamingResponse
+from fastapi.responses import (
+    FileResponse,
+    HTMLResponse,
+    JSONResponse,
+    PlainTextResponse,
+    Response,
+    StreamingResponse,
+)
 from starlette.background import BackgroundTask
 from starlette.concurrency import run_in_threadpool
 
@@ -37,6 +45,8 @@ from sgblur_video.models import RegistryError, load_registry, select_model
 logger = logging.getLogger(__name__)
 
 _SYNC_POLL_S = 0.5
+#: The web page served at ``/ui`` (static; it calls the API from the browser).
+_UI_PAGE = (resources.files("sgblur_video.api") / "ui.html").read_text(encoding="utf-8")
 _STREAM_CHUNK = 1 << 20
 
 
@@ -273,6 +283,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         await run_in_threadpool(delete_job_files, store.paths(job))
         store.mark_expired(job_id)
         return Response(status_code=204)
+
+    if settings.web_ui:
+
+        @app.get("/ui", tags=["ops"], response_class=HTMLResponse)
+        async def web_ui() -> str:
+            """Web page to upload a video and download the blurred result (calls this API)."""
+            return _UI_PAGE
 
     @app.get("/metrics", tags=["ops"], response_class=PlainTextResponse)
     async def metrics() -> str:

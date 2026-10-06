@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Web page at `/ui` (setting `WEB_UI`, on by default): upload a video with progress, follow the job, watch and download the blurred video, list the sign annotations and their best pictures, delete the results. Self-contained, it only calls the HTTP API.
 - A test checks that both HTTP applications serve exactly the routes of `docs/design/openapi.yaml`.
 
 - Benchmarks (step 8): privacy dataset tooling (`annotate export` cuts a clip, encodes a ≤ 3840 px CVAT proxy and a model pre-annotation in "CVAT for video 1.1"; `annotate import` converts the corrected CVAT export into full-resolution ground truth), coverage-based leakage metrics (per class, size and readability, tracks ever leaked, longest and transient exposures, re-identifications, over-blur) with the gate of `benchmarks/privacy-thresholds.yaml`; `benchmark privacy` with setting sweeps, `benchmark trackers` replaying tracking on cached detections, `benchmark speed` per model, device and detection profile; JSON and Markdown reports without file names; the privacy benchmark also runs on the synthetic scenario in CI.

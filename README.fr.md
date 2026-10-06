@@ -65,6 +65,9 @@ Documents), lisez la [FAQ](docs/guides/troubleshooting.md).
 
 ### En service
 
+`uv run sgblur-video serve` (ou le fichier Compose ci-dessous), puis ouvrez
+<http://localhost:8000/ui> pour flouter une vidéo depuis le navigateur, ou utilisez l'API :
+
 ```bash
 docker compose -f docker/docker-compose.yml up --build       # ou : uv run sgblur-video serve
 curl -s -F video=@ma-video.mp4 http://localhost:8000/blur/   # → {"job_id": …}

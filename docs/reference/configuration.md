@@ -16,7 +16,8 @@ privacy note must not be changed without running the privacy benchmark
 | Variable | Type | Default | Description | Privacy |
 |---|---|---|---|---|
 | `API_NAME` | string | `SGBlur-Video` | `service_name` in metadata and prefix of `detection_model` tag values. Never change it after deployment: Panoramax removes previous detection tags by this prefix. | — |
-| `API_TOKEN` | secret | empty | If set, required as a bearer token on every route except `/` and `/metrics`. | — |
+| `API_TOKEN` | secret | empty | If set, required as a bearer token on every route except `/`, `/ui` and `/metrics`. | — |
+| `WEB_UI` | boolean | `true` | Serve a web page at `/ui` to upload a video and download the blurred result. | — |
 
 ## Model and device
 
