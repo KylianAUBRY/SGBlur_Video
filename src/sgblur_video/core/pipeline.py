@@ -3,6 +3,7 @@
 import json
 import logging
 import uuid
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -16,7 +17,7 @@ from sgblur_video.core.device import available_memory_gib, resolve_device, use_h
 from sgblur_video.core.frames import BestFrameWriter, extract_best_frames
 from sgblur_video.core.postprocess import BlurPlan, build_blur_plan
 from sgblur_video.core.probe import VideoInfo, probe
-from sgblur_video.core.render import RenderStats, render
+from sgblur_video.core.render import RegionSink, RenderStats, render
 from sgblur_video.models import ModelEntry, check_class_policy, ensure_weights, load_registry, select_model
 from sgblur_video.semantics.annotations import (
     Annotation,
@@ -119,12 +120,14 @@ class RenderResult:
         render: Rendering statistics.
         metadata: Panoramax metadata (sign annotations, statistics).
         frames: Index entries of the best-frame pictures written (empty if not requested).
+        region_sink: The region sink used during rendering (``keep=1`` recorder), if any.
     """
 
     plan: BlurPlan
     render: RenderStats
     metadata: Metadata
     frames: list[dict[str, Any]]
+    region_sink: RegionSink | None = None
 
 
 def run_render(
@@ -145,8 +148,8 @@ def run_render(
             not match the video.
     """
     info = probe(input_video, settings)
-    detections = _load_detections(detections_path, info, allow_partial=allow_partial)
-    return _render(
+    detections = load_detections(detections_path, info, allow_partial=allow_partial)
+    return render_detections(
         info,
         detections,
         output,
@@ -157,7 +160,12 @@ def run_render(
     )
 
 
-def _load_detections(path: Path, info: VideoInfo, *, allow_partial: bool) -> Detections:
+def load_detections(path: Path, info: VideoInfo, *, allow_partial: bool) -> Detections:
+    """Read ``detections.jsonl`` and check it belongs to ``info``'s video.
+
+    Raises:
+        DetectionsFormatError: Incomplete file (unless ``allow_partial``) or another video's file.
+    """
     detections = read_detections(path)
     if not detections.complete and not allow_partial:
         msg = "detections.jsonl is incomplete (no footer or complete=false); use allow_partial to render it"
@@ -205,16 +213,34 @@ def _stats(plan: BlurPlan, annotations: list[Annotation], detections: Detections
     }
 
 
-def _render(
+def render_detections(
     info: VideoInfo,
     detections: Detections,
     output: Path,
     settings: Settings,
     *,
-    debug_output: Path | None,
-    frames_dir: Path | None,
-    progress: ProgressCallback | None,
+    debug_output: Path | None = None,
+    frames_dir: Path | None = None,
+    progress: ProgressCallback | None = None,
+    region_sink_factory: Callable[[BlurPlan], RegionSink] | None = None,
+    blurring_id: str | None = None,
 ) -> RenderResult:
+    """Post-processing, sign annotations and pass 2 for already-analysed detections.
+
+    Args:
+        info: Probed video.
+        detections: Its ``detections.jsonl``.
+        output: Blurred video to write.
+        settings: Settings.
+        debug_output: Optional annotated debug video.
+        frames_dir: Optional folder for best-frame pictures.
+        progress: Progress callback.
+        region_sink_factory: Builds a sink receiving original regions from the plan (``keep=1``).
+        blurring_id: Identifier written in the metadata (random by default).
+
+    Returns:
+        Plan, rendering statistics, metadata and best-frame entries.
+    """
     plan = build_blur_plan(detections, settings, frame_size=(info.width, info.height), fps=info.fps)
     logger.info("blur plan: %s", plan.stats)
     annotations = _sign_annotations(detections, info, settings)
@@ -223,6 +249,7 @@ def _render(
     if debug_output is not None:
         debug = (debug_output, DebugOverlay(plan, detections, settings.classes_with(ClassAction.ANNOTATE)))
     writer = BestFrameWriter(frames_dir, annotations, info) if frames_dir is not None else None
+    region_sink = region_sink_factory(plan) if region_sink_factory is not None else None
     stats = render(
         info,
         plan,
@@ -231,18 +258,25 @@ def _render(
         max_frames=len(detections.frames),
         debug=debug,
         frame_sink=writer,
+        region_sink=region_sink,
         progress=progress,
     )
     if writer is not None:
         writer.write_index()
     metadata = Metadata(
-        blurring_id=str(uuid.uuid4()),
+        blurring_id=blurring_id or str(uuid.uuid4()),
         service_name=settings.api_name,
         annotations=annotations,
         video=_video_summary(info),
         stats=_stats(plan, annotations, detections) | {"dropped_streams": stats.dropped_streams},
     )
-    return RenderResult(plan=plan, render=stats, metadata=metadata, frames=writer.written if writer else [])
+    return RenderResult(
+        plan=plan,
+        render=stats,
+        metadata=metadata,
+        frames=writer.written if writer else [],
+        region_sink=region_sink,
+    )
 
 
 def write_metadata(metadata: Metadata, path: Path) -> None:
@@ -288,8 +322,8 @@ def run_blur(
         max_frames=max_frames,
         progress=progress,
     )
-    detections = _load_detections(detections_path, info, allow_partial=True)
-    result = _render(
+    detections = load_detections(detections_path, info, allow_partial=True)
+    result = render_detections(
         info,
         detections,
         output,
@@ -343,7 +377,7 @@ def run_signs(
         max_frames=max_frames,
         progress=progress,
     )
-    detections = _load_detections(detections_path, info, allow_partial=True)
+    detections = load_detections(detections_path, info, allow_partial=True)
     plan = build_blur_plan(detections, settings, frame_size=(info.width, info.height), fps=info.fps)
     annotations = _sign_annotations(detections, info, settings)
     if frames_dir is not None:

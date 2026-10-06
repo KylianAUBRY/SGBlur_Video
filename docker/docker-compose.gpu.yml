@@ -1,0 +1,26 @@
+# NVIDIA GPU override (needs the NVIDIA Container Toolkit on the host):
+#   docker compose -f docker/docker-compose.yml -f docker/docker-compose.gpu.yml up --build
+
+x-gpu: &gpu
+  image: sgblur-video:gpu
+  build:
+    context: ..
+    dockerfile: docker/Dockerfile
+    target: gpu
+  deploy:
+    resources:
+      reservations:
+        devices:
+          - driver: nvidia
+            count: all
+            capabilities: [gpu, video]
+
+services:
+  api:
+    image: sgblur-video:gpu
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: gpu
+  worker: *gpu
+  detect: *gpu

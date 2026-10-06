@@ -67,3 +67,27 @@ jobs:
       - uses: astral-sh/setup-uv@v10.2.0  # setup-uv publishes no floating major tag
       # mkdocstrings reads the sources statically: no need to install the heavy runtime.
       - run: uv run --only-group docs mkdocs build --strict
+
+  docker:
+    name: Docker image (CPU)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: docker/Dockerfile
+          target: cpu
+          tags: sgblur-video:ci
+          load: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Smoke test (CLI and API health)
+        run: |
+          docker run --rm sgblur-video:ci sgblur-video version
+          docker run --rm sgblur-video:ci sgblur-video models list
+          docker run -d --name api -p 8000:8000 sgblur-video:ci sgblur-video serve --host 0.0.0.0 --workers 0
+          for i in $(seq 30); do curl -sf http://localhost:8000/ && break; sleep 2; done
+          curl -sf http://localhost:8000/ | grep -q '"status":"ok"'
+          docker rm -f api
