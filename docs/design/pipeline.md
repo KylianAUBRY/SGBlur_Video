@@ -146,14 +146,15 @@ seen only every other frame and trackers fail to confirm them; linking turns
 those sightings back into continuous chains, which then go through the steps
 below (the selection rule of §3.0 applies per chain).
 
-### 3.1 Seam stitching (equirect only)
+### 3.1 Seam continuity (equirect only)
 
-A track whose last box touches one vertical edge (within `SEAM_MARGIN`, *2 %*
-of the width) and a track of the same group whose first box touches the
-opposite edge, starting within `SEAM_MAX_GAP_S` (*0.5 s*) and overlapping
-vertically (IoU on the y-axis ≥ *0.5*), are merged; coordinates of the second
-are unwrapped by ±w to keep continuity. This gives one sign annotation instead
-of two, and lets gap filling work across the seam.
+Implemented by the offline linking of §3.0b, made wrap-aware: distances are
+measured around the circle (an object leaving at `x = w` and reappearing at
+`x = 0` is close), and observations joining a chain are shifted by whole turns
+(±w) so the chain stays continuous. Gap filling, smoothing and padding then
+work across the seam unchanged; rendering blurs each shape and its copies one
+turn left and right. (The separate stitching pass with `SEAM_MARGIN` /
+`SEAM_MAX_GAP_S` imagined at design time was not needed and was dropped.)
 
 ### 3.2 Gap filling
 
@@ -266,9 +267,10 @@ Insta360 trailer), unknown `uuid` boxes, anything inside `mdat`.
 ## 5. Telemetry and positions
 
 `telemetry/gps.py` exposes `position_at(t) -> (lat, lon, alt) | None` by linear
-interpolation of the GPS track. v1 reads GoPro GPMF (`GPS5`/`GPS9`) from the
-`gpmd` stream with a small built-in KLV parser; other formats are listed as
-unsupported. Positions are used for sign annotations and best-frame JPEG EXIF
+interpolation of the GPS track (no extrapolation beyond 1 s). v1 reads GoPro
+GPMF (`GPS5`/`GPS9`, samples without a 2D/3D fix ignored) from the `gpmd`
+stream with a small built-in KLV parser (`telemetry/gpmf.py`); other formats
+are listed as unsupported. Positions are used for sign annotations and best-frame JPEG EXIF
 only, and the GPS track itself is preserved in the output through the copied
 `gpmd` stream.
 

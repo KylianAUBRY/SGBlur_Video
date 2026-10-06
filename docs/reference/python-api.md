@@ -30,6 +30,14 @@ Reference generated from the docstrings of the package.
 
 ::: sgblur_video.privacy.keep
 
+::: sgblur_video.core.mp4boxes
+
+::: sgblur_video.video360.wrap
+
+::: sgblur_video.telemetry.gpmf
+
+::: sgblur_video.telemetry.gps
+
 ::: sgblur_video.jobs.store
 
 ::: sgblur_video.jobs.worker

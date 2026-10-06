@@ -12,8 +12,8 @@ status `superseded by ADR-XXXX`.
 | [0004](0004-irreversible-blur.md) | Irreversible blur method and shapes | proposed |
 | [0005](0005-job-queue.md) | Job queue: SQLite and worker processes, no Redis | proposed |
 | [0006](0006-licence.md) | Licence: MIT code with an AGPL-3.0 runtime dependency | accepted (maintainer, 2026-10-06) |
-| [0007](0007-360-video.md) | 360° video: equirectangular only, circular padding, seam stitching | proposed |
-| [0008](0008-video-io-and-metadata-preservation.md) | Video I/O with PyAV and MP4 box post-processing | proposed |
+| [0007](0007-360-video.md) | 360° video: equirectangular only, circular padding, seam stitching | accepted (step 7) |
+| [0008](0008-video-io-and-metadata-preservation.md) | Video I/O with PyAV and MP4 box post-processing | accepted (steps 4 and 7) |
 | [0009](0009-model-registry-and-class-policy.md) | Reuse SGBlur YOLO26 weights; registry and class policy by name | accepted (maintainer, 2026-10-06) |
 | [0010](0010-privacy-testing-strategy.md) | Privacy testing: synthetic oracle + annotated real clips | accepted (maintainer, 2026-10-06) |
 | [0011](0011-offline-linking.md) | Offline linking of detections the tracker leaves alone | accepted (step 4 measurements) |

@@ -39,8 +39,13 @@ Transitive dependencies are listed in `uv.lock`; notable ones: `polars` (MIT),
 
 ## Test data
 
-No media is committed. Fixtures downloaded by the test suite will be listed
-here with their source and licence when they are added (step 4).
+No media is committed. The test suite generates synthetic videos and downloads
+these fixtures on demand (pinned commit, SHA-256 checked, cached outside the
+repository — `tests/data/fetch.py`):
+
+| Fixture | Source | Licence |
+|---|---|---|
+| `hero6.mp4` (GoPro HERO6, GPS telemetry) | [gopro/gpmf-parser](https://github.com/gopro/gpmf-parser) `samples/`, commit `9a71506` | Apache-2.0 OR MIT |
 
 ## Documentation tooling (development only)
 

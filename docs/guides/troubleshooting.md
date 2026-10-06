@@ -27,6 +27,21 @@ Containers on macOS cannot use the Apple GPU (MPS) or the VideoToolbox
 encoder: detection and 8K encoding fall back to the CPU. Install natively on
 macOS (see [Installation](../getting-started/installation.md)).
 
+## Does the blurred 360° video still play as 360°?
+
+Yes: the Spherical Video V1/V2 metadata of the original is copied back into
+the output (`stats.restored_metadata` in the job metadata says what was
+restored). If a player still shows a flat picture, check that the original
+itself carried spherical metadata (`sgblur-video` logs `projection=…
+(spherical-metadata)` when probing it).
+
+## Where is the GPS of my video?
+
+GoPro GPMF telemetry (HERO5–HERO11, MAX, and later models with GPS) is copied
+unchanged into the blurred video and used to geolocate signs. HERO12 has no
+GPS receiver. Other telemetry formats (CAMM, DJI, Insta360, dashcam formats)
+are not supported in v1 and are listed in `stats.dropped_streams`.
+
 ## Why is my 360° file rejected?
 
 Only equirectangular videos are supported in v1. GoPro `.360` files (EAC

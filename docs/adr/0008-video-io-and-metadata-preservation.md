@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 date: 2026-10-06
 ---
 
@@ -42,6 +42,15 @@ Design:
 - The muxer writes `moov` after `mdat`; `core/mp4boxes.py` then rewrites `moov` (no sample offset changes) to transplant, **by allow-list**: Spherical V1/V2 boxes, the video `tkhd` matrix, safe `udta` children (GoPro settings and GPMF, QuickTime location/date). Thumbnails, previews, trailers and unknown boxes are never copied.
 - Encoder: same codec family as the source; hardware encoder when available; bit rate matched to the source; colour properties and codec tag copied.
 - Telemetry formats that FFmpeg cannot mux (CAMM, DJI `djmd`, Sony `rtmd`, Apple `mebx`, Insta360 trailer, Novatek `gps `) are **not supported in v1**: they are dropped (and reported); supporting them means writing their sample tables ourselves, tracked as future work.
+
+### Implementation notes (steps 4 and 7)
+
+- `core/render.py` muxes the blurred video and copies audio and `gpmd` packets in one loop;
+  `core/mp4boxes.py` then rewrites the final `moov` (Spherical V1/V2, `tkhd` matrix, allow-listed
+  `udta`). Verified on a GoPro HERO6 sample (GPS track identical before and after, `FIRM` and
+  other camera boxes restored) and on the maintainer's Q360 8K files (360° playback restored).
+- GPS positions are read from GPMF (`GPS5`, `GPS9`) by a small built-in KLV parser and used for
+  sign annotations and best-frame EXIF; videos without a GPS fix (e.g. GoPro HERO12) have none.
 
 ### Consequences
 
