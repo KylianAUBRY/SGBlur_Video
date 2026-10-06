@@ -3,14 +3,28 @@
 
 ## Native (macOS Apple Silicon, Linux)
 
-Requirements: Python 3.14 and [uv](https://docs.astral.sh/uv/).
+Requirements: Python 3.14 and [uv](https://docs.astral.sh/uv/) (uv installs
+Python 3.14 itself if needed). No system FFmpeg is needed: PyAV ships its own
+FFmpeg libraries.
 
 ```bash
 git clone https://github.com/KylianAUBRY/SGBlur_Video.git
 cd SGBlur_Video
-uv sync
+uv sync                                       # first run: downloads PyTorch, a few minutes
+uv run sgblur-video models download yolo26s   # optional: weights are also fetched on first use
 uv run sgblur-video --help
 ```
+
+- Weights go to `~/.cache/sgblur-video/models` (`MODELS_DIR`) and are checked
+  against their SHA-256 before every load.
+- Run commands from the repository root: the defaults of `MODELS_FILE`
+  (`models/registry.yaml`) and `TRACKER_CONFIG` (`configs/trackers/…`) are
+  relative paths. Elsewhere, set them as absolute paths (environment or `.env`).
+- On macOS, if the repository is in a folder synced by iCloud Drive (Desktop,
+  Documents), `import sgblur_video` can fail after `uv sync`: see
+  [troubleshooting](../guides/troubleshooting.md).
+- The first command of a session takes a few extra seconds (PyTorch import,
+  model load, GPU warm-up).
 
 On macOS, native installation is the recommended way to process videos: Docker
 containers on macOS cannot use the Apple GPU (MPS) or the VideoToolbox hardware
@@ -19,7 +33,8 @@ encoder, which makes 8K videos several times slower.
 ## CPU-only Linux
 
 `uv sync` installs CPU-only PyTorch wheels on Linux (a few hundred MB instead of
-several GB of CUDA libraries).
+several GB of CUDA libraries), **even on a machine with an NVIDIA GPU**. To use
+CUDA, run the `gpu` Docker image (below).
 
 ## Docker
 

@@ -13,14 +13,14 @@ We treat **privacy leaks as security vulnerabilities**.
 ## How to report (v1)
 
 SGBlur-Video v1 is developed during a time-limited hackathon and is
-**pre-alpha: it must not be deployed in production**. Until v2, reports go
+**alpha: it must not be deployed in production**. Until v2, reports go
 through a **public issue** with the
 [**Privacy leak / security** template](https://github.com/KylianAUBRY/SGBlur_Video/issues/new?template=privacy_leak.yml),
 under strict rules:
 
 - **Never attach** the video, a picture, a screenshot or a link to media showing the person or the plate.
 - **Never give** a place, a date, a name or anything that could identify the person, the vehicle or where the video was shot.
-- **Describe** the technical situation instead: resolution, frame rate, 360° or not, approximate object size in pixels, motion, lighting, how many frames stay visible, version and settings (`sgblur-video version`, `sgblur-video config`).
+- **Describe** the technical situation instead: resolution, frame rate, 360° or not, approximate object size in pixels, motion, lighting, how many frames stay visible, version and settings (`sgblur-video version`, `sgblur-video config`, which shows your home folder as `~`; remove any other path that could identify you).
 
 Maintainers delete any issue or comment that breaks these rules. If they need
 media to reproduce a leak, they agree with the reporter on a private, temporary
@@ -37,4 +37,4 @@ the code of conduct will then point to it.
 
 ## Supported versions
 
-The project is pre-alpha: only the `main` branch is supported.
+The project is alpha: only the `main` branch is supported.

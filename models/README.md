@@ -7,7 +7,7 @@ verified against their SHA-256.
 
 ```bash
 uv run sgblur-video models list
-uv run sgblur-video models download     # planned for step 4
+uv run sgblur-video models download yolo26s   # or without a name: every model of the registry
 ```
 
 How to add a model or move to a new YOLO version: see

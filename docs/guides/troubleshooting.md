@@ -15,6 +15,13 @@ mv .venv venv && ln -s venv .venv && chflags -R nohidden venv
 (or clone the project outside iCloud-synced folders). The test suite is not
 affected either way: pytest adds `src/` to the import path itself.
 
+## `invalid model registry models/registry.yaml: No such file or directory`
+
+The defaults of `MODELS_FILE` (`models/registry.yaml`) and `TRACKER_CONFIG`
+(`configs/trackers/tracktrack-recall.yaml`) are relative to the current
+folder. Run commands from the repository root, or set both to absolute paths
+in the environment or in a `.env` file. The Docker image sets them for you.
+
 ## `objc: Class AVF… is implemented in both …` warnings (macOS)
 
 PyAV and OpenCV each bundle their own FFmpeg libraries. The duplicated classes

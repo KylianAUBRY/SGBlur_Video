@@ -1,6 +1,6 @@
 # `detections.jsonl` format (version 1)
 
-> Status: **draft for validation (step 2)**.
+> Status: **accepted** (step 2), implemented in step 4 (`sgblur_video.core.detections_io`).
 
 `detections.jsonl` is the contract between pass 1 (analysis) and the rest of
 the pipeline. It is written by the in-process analyser **and** streamed by the
@@ -39,7 +39,7 @@ file without `footer` as incomplete (the renderer refuses it unless
     "codec": "hevc",
     "pix_fmt": "yuv420p10le",
     "projection": "equirectangular",
-    "projection_source": "spherical-v1"
+    "projection_source": "spherical-metadata"
   },
   "model": {
     "name": "yolo26s",
@@ -119,4 +119,4 @@ frame count and timestamps can be checked against the video in pass 2.
 
 - Adding optional fields keeps `version: 1`; consumers ignore unknown fields.
 - Renaming/removing fields or changing units bumps `version`.
-- A JSON Schema (`schemas/detections-v1.schema.json`) is generated from the Pydantic models in step 4 and checked in CI.
+- The format is defined by the Pydantic models of `sgblur_video.core.detections_io`, and the reader rejects unknown versions. A published JSON Schema is possible future work (not generated today).

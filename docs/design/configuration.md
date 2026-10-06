@@ -4,8 +4,7 @@
     This was the step-2 design table. The authoritative, always up-to-date
     reference is generated from the code: [Configuration reference](../reference/configuration.md).
 
-> Status: **draft for validation (step 2)**. Values in *italics* are provisional
-> and will be tuned in step 8. Settings are read with `pydantic-settings` from
+> Historical: values in *italics* were the step-2 proposals. Settings are read with `pydantic-settings` from
 > environment variables and an optional `.env` file, **without prefix** to stay
 > consistent with SGBlur (`API_NAME`, `DETECT_URL`, `MODEL_NAME`…).
 
@@ -62,7 +61,6 @@ leave faces/plates visible or keep personal data longer.
 | `BLUR_PADDING_GROWTH` | float | *0.05* | Per-frame growth of padded boxes. | Lower ↑ risk |
 | `MAX_INTERPOLATION_GAP_S` | float | *2.0* | Longest gap filled by interpolation inside a track. | Lower ↑ risk |
 | `SIGN_MIN_TRACK_LENGTH` | int | *5* | Minimum observations for a sign annotation. | none |
-| `SEAM_MAX_GAP_S` | float | *0.5* | Max time between two tracks stitched across the 360° seam. | none |
 
 ## Encoding
 
@@ -86,7 +84,6 @@ leave faces/plates visible or keep personal data longer.
 | `MAX_VIDEO_DURATION_S` | int | *1800* | Duration limit. | none |
 | `SYNC_MAX_DURATION_S` | int | *30* | Max duration for `sync=1`. | none |
 | `ACCEPTED_CONTAINERS` | list | `mp4,mov` | Accepted containers. | none |
-| `WORKER_CONCURRENCY` | int | *1* | Jobs processed in parallel by one worker (one accelerator ⇒ 1). | none |
 | `QUEUE_MAX` | int | *20* | Queued jobs before `503 queue_full`. | none |
 | `JOB_TIMEOUT_S` | int | *21600* | Hard limit per job; the job process is killed and files deleted. | none |
 | `CALLBACK_ALLOWED_HOSTS` | list | empty | Hosts allowed in `callback_url`; empty disables callbacks (SSRF protection). | none |

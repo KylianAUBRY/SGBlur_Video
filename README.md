@@ -8,9 +8,10 @@ and returns **one Panoramax annotation per physical traffic sign**.
 
 🇫🇷 [Lire en français](README.fr.md)
 
-> **Status: pre-alpha.** The design is done and the project skeleton is in place;
-> the processing pipeline is being implemented. Nothing here is ready for
-> production yet. Follow the roadmap below.
+> **Status: alpha.** The pipeline, the HTTP API, 360° support and the
+> benchmarks work. Privacy is checked on synthetic videos on every push; the
+> validation on annotated real footage is in progress. Review the output before
+> publishing it, and do not run it in production yet.
 
 ## Why video needs more than per-frame blurring
 
@@ -42,18 +43,23 @@ Details: [architecture](docs/design/architecture.md), [pipeline](docs/design/pip
 ## Quick start (development)
 
 Requirements: Python 3.14, [uv](https://docs.astral.sh/uv/), macOS (Apple Silicon) or Linux.
+No system FFmpeg is needed (PyAV ships its own). Run commands from the
+repository root: default paths (`models/registry.yaml`, `configs/trackers/`) are relative.
 
 ```bash
 git clone https://github.com/KylianAUBRY/SGBlur_Video.git
 cd SGBlur_Video
 uv sync
-uv run sgblur-video models download                  # SGBlur YOLO26 model, hash-checked
+uv run sgblur-video models download yolo26s          # SGBlur YOLO26 model (20 MB), hash-checked
 uv run sgblur-video blur my-video.mp4 blurred.mp4 --debug
 ```
 
-`blurred.metadata.json` holds one Panoramax annotation per traffic sign and
-`blurred.debug.mp4` shows every blurred region and every sign. Add
-`--frames-dir frames/` to get the best view of each sign as a blurred JPEG.
+`blurred.mp4` is blurred on every frame, with its audio, GoPro GPS and 360°
+metadata kept. `blurred.metadata.json` holds one Panoramax annotation per
+traffic sign and `blurred.debug.mp4` shows every blurred region and every sign.
+Add `--frames-dir frames/` to get the best view of each sign as a blurred JPEG.
+More in the [installation guide](docs/getting-started/installation.md) and the
+[command-line reference](docs/usage/cli.md).
 
 ### As a service
 
@@ -78,7 +84,7 @@ See [HTTP API](docs/usage/api.md).
 | 6 | Asynchronous HTTP API, Docker | ✅ done |
 | 7 | 360° seam handling, telemetry, metadata preservation | ✅ done |
 | 8 | Benchmarks (trackers, models, devices) and default tuning | ✅ done (leakage on real footage: awaiting annotated clips) |
-| 9 | Documentation review | ⏳ next |
+| 9 | Documentation review | ✅ done |
 
 v1 is built during a time-limited hackathon. Deliberately left for **v2**:
 private vulnerability reporting (GitHub), CAMM/DJI/Insta360 telemetry

@@ -84,15 +84,16 @@ the box itself.
 ## 7. Signs
 
 Signs and direction signs are tracked the same way but **never blurred**. They
-are deduplicated into one Panoramax annotation per physical sign (roadmap
-step 5).
+are deduplicated into one Panoramax annotation per physical sign: see
+[Annotations and Panoramax](annotations.md).
 
 ## 8. Known limitations
 
 - An object the detector **never** sees cannot be blurred: tracking and
   post-processing only fill gaps between sightings. Very small faces (≈ 15 px)
-  in 8K 360° footage are the main known case; the detection profile and
-  thresholds are tuned against annotated clips in step 8.
+  in 8K 360° footage are the main known case. The detection profile and
+  thresholds will be tuned with the privacy benchmark on annotated clips
+  ([benchmarks](../guides/benchmarks.md)).
 - Padding uses a constant-velocity model: an object that changes direction
   abruptly at the very start or end of its appearance relies on the growing
   padded box to stay covered.

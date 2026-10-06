@@ -63,10 +63,12 @@ Results of synchronous requests are deleted as soon as they are sent.
 
 ## Errors
 
-Every error is `{"detail": "…", "code": "…"}`:
+Every error is `{"detail": "…", "code": "…"}`, including invalid query
+parameters (e.g. `keep=2` → `422 invalid_parameter`):
 
 | Status | Codes |
 |---|---|
+| 400 | `invalid_parameter` (malformed multipart body) |
 | 401 | `unauthorized` (when `API_TOKEN` is set) |
 | 404 | `job_not_found`, `frames_not_requested`, `frame_not_found` |
 | 409 | `job_not_ready`, `job_failed` |
@@ -74,10 +76,12 @@ Every error is `{"detail": "…", "code": "…"}`:
 | 413 | `file_too_large` |
 | 415 | `unsupported_media_type`, `unsupported_projection` |
 | 422 | `invalid_parameter`, `video_too_long`, `sync_too_long`, `keep_unavailable`, `callback_not_allowed` |
+| 500 | `processing_error`, `worker_crash` (only with `sync=1`, when the job fails) |
 | 503 | `queue_full`, `detector_busy` (with `Retry-After`) |
 
 A failed job reports `error.code` in its status: one of the input codes above,
-`detection_failed`, `processing_error`, `timeout` or `worker_crash`.
+`detection_failed`, `processing_error`, `timeout`, `worker_crash` or `cancelled`. With
+`sync=1`, a job that fails on its input answers `422` with that code.
 
 ## Remote detection (split mode)
 

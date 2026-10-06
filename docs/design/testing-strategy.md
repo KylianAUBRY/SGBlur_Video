@@ -20,10 +20,10 @@ need a reference built independently of the model:
 
 | Level | Runs | GPU | Data | Content |
 |---|---|---|---|---|
-| Unit (`tests/unit`) | every push (GitHub Actions) | no | in-memory | geometry (wrap-aware IoU, merge, ellipse), post-processing on synthetic tracks (interpolation, padding, smoothing envelope, seam stitching, sign dedup), annotation format, config validation, MP4 box editor on tiny generated files, job store state machine. Coverage ≥ 85 % on `core/`, `privacy/`, `semantics/`. |
+| Unit (`tests/unit`) | every push (GitHub Actions) | no | in-memory | geometry (wrap-aware IoU, merge, ellipse), post-processing on synthetic tracks (interpolation, padding, smoothing envelope, wrap-aware linking across the 360° seam, sign dedup), annotation format, config validation, MP4 box editor on tiny generated files, job store state machine. Coverage ≥ 85 % on `core/`, `privacy/`, `semantics/`. |
 | Synthetic oracle (A, `tests/privacy`) | every push | no | generated on the fly | see below — the CI privacy gate. |
 | Integration (`tests/integration`) | every push (CPU, short clips) | no | small free fixtures, downloaded and SHA-256 checked, cached | real model on CPU on a few seconds: same frame count, same duration (±1 frame), same timestamps, audio present and bit-identical, `gpmd` stream present and parsable, spherical metadata present, rotation preserved, no unknown boxes copied. |
-| End-to-end (`tests/e2e`) | every push | no | generated clip | `docker compose up` → `curl /blur/` → poll → download → checks. |
+| HTTP API (`tests/integration/test_api.py`) and Docker | every push | no | generated clip | in-process FastAPI client: upload → poll → download → checks, `sync=1`, errors, cleanup; CI also builds the CPU image and checks its health endpoint. A full `docker compose up` + `curl` run was checked manually in step 6. |
 | Privacy benchmark (D) | on demand, locally or on a self-hosted runner | recommended | annotated real clips, **outside git** | leakage metrics on real footage, gate on thresholds. |
 
 ## A — Synthetic oracle (CI privacy gate)
@@ -101,7 +101,7 @@ applied on that frame:
 Initial thresholds in `benchmarks/privacy-thresholds.yaml`, to tighten as the
 dataset grows: leakage rate of `readable` objects ≤ *1 %*, 0 tracks of
 `readable` objects ever leaked for more than *3* consecutive frames. Every
-change to defaults in step 8 must report these metrics before/after.
+change to a privacy-related default must report these metrics before/after.
 
 ## Data handling rules for tests
 

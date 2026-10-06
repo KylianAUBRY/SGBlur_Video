@@ -44,5 +44,5 @@ body:
     id: config
     attributes:
       label: Version and configuration
-      description: Output of `sgblur-video version` and `sgblur-video config` (secrets are masked).
+      description: Output of `sgblur-video version` and `sgblur-video config` (secrets are masked and the home folder is shown as `~`; remove any other identifying path).
       render: json

@@ -1,8 +1,8 @@
 # Pipeline design
 
-> Status: **draft for validation (step 2)**. Numbers in *italics* are provisional
-> defaults to be tuned in step 8 against the annotated privacy dataset
-> ([testing-strategy.md](testing-strategy.md)).
+> Status: **accepted** (step 2), implemented in steps 4–8; implementation notes
+> are inline. Numbers in *italics* are defaults that remain provisional until
+> the privacy benchmark on annotated real clips ([testing-strategy.md](testing-strategy.md)).
 
 ## 0. Vocabulary
 
@@ -26,7 +26,7 @@ width/height, display rotation, `time_base`, average and real frame rate
 duration, bit rate, audio/data/subtitle streams with handler names and tags,
 spherical side data, telemetry kind (GPMF `gpmd`, CAMM, none).
 
-Rejections (HTTP 415/422, CLI exit code 2):
+Rejections (HTTP 415/422, CLI exit code 1 with a one-line message):
 
 | Case | Detection | Reason |
 |---|---|---|
@@ -190,8 +190,9 @@ Rationale for 15 frames: detectors typically pick a face up a few frames
 after it becomes recognisable (small, blurred by motion, partially occluded),
 and lose it a few frames before it leaves. Half a second is the order of
 magnitude used for "transient exposure" in recent video anonymisation work
-(UrbanAnonymizer, ⅓ s). Step 8 measures the exposure that remains at the start
-and end of ground-truth tracks and tunes this value.
+(UrbanAnonymizer, ⅓ s). The privacy benchmark measures the exposure that
+remains at the start and end of ground-truth tracks ("transient exposures");
+this value will be revisited with its results on annotated clips.
 
 ### 3.5 Spatial margin and shapes
 
@@ -206,7 +207,7 @@ split into its two parts.
 
 ### 3.6 Sign deduplication and annotations
 
-For each `signage` track (after seam stitching):
+For each `signage` track:
 
 0. Sign fragments (tracks and orphans) are linked offline like faces and plates (§3.0b), so a sign detected intermittently is still one sign.
 1. Drop it if it has fewer than `SIGN_MIN_TRACK_LENGTH` (*5*) observations or a max score below `CONF_SIGN` (*0.6*, SGBlur value).
