@@ -20,6 +20,7 @@ from typing import Any
 import av
 import numpy as np
 from PIL import Image
+from PIL.TiffImagePlugin import IFDRational
 
 from sgblur_video.config import Settings
 from sgblur_video.core.decode import iter_frames, rotate_upright
@@ -27,6 +28,7 @@ from sgblur_video.core.postprocess import BlurPlan
 from sgblur_video.core.probe import VideoInfo
 from sgblur_video.privacy.blur import blur_frame
 from sgblur_video.semantics.annotations import Annotation
+from sgblur_video.telemetry.gps import Fix, GpsTrack
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +42,7 @@ _DATETIME_ORIGINAL = 0x9003
 _SUBSEC_ORIGINAL = 0x9291
 _OFFSET_ORIGINAL = 0x9011
 _SOFTWARE = 0x0131
+_GPS_IFD = 0x8825
 
 
 def _utc_offset(moment: datetime) -> str:
@@ -47,6 +50,26 @@ def _utc_offset(moment: datetime) -> str:
     minutes = int((moment.utcoffset() or timedelta(0)).total_seconds() // 60)
     hours, rest = divmod(abs(minutes), 60)
     return f"{'+' if minutes >= 0 else '-'}{hours:02d}:{rest:02d}"
+
+
+def _dms(value: float) -> tuple[IFDRational, IFDRational, IFDRational]:
+    """Degrees, minutes, seconds of an absolute coordinate, as EXIF rationals."""
+    value = abs(value)
+    degrees = int(value)
+    minutes = int((value - degrees) * 60)
+    seconds = (value - degrees - minutes / 60) * 3600
+    return IFDRational(degrees, 1), IFDRational(minutes, 1), IFDRational(round(seconds * 10000), 10000)
+
+
+def _set_gps(exif: Image.Exif, fix: Fix) -> None:
+    gps = exif.get_ifd(_GPS_IFD)
+    gps[0] = b"\x02\x03\x00\x00"  # GPSVersionID 2.3
+    gps[1] = "N" if fix.lat >= 0 else "S"
+    gps[2] = _dms(fix.lat)
+    gps[3] = "E" if fix.lon >= 0 else "W"
+    gps[4] = _dms(fix.lon)
+    gps[5] = 0 if fix.alt >= 0 else 1
+    gps[6] = IFDRational(round(abs(fix.alt) * 100), 100)
 
 
 def _creation_time(metadata: Mapping[str, str]) -> datetime | None:
@@ -67,12 +90,14 @@ class BestFrameWriter:
         out_dir: Destination folder (created if needed).
         annotations: Sign annotations; each one's ``video.best_frame`` is extracted.
         info: Probed video (rotation, creation time).
+        gps: GPS track of the video, written to the pictures' EXIF when available.
         software: Value of the EXIF ``Software`` tag.
     """
 
     out_dir: Path
     annotations: Sequence[Annotation]
     info: VideoInfo
+    gps: GpsTrack | None = None
     software: str = "SGBlur-Video"
     written: list[dict[str, Any]] = field(default_factory=list)
 
@@ -109,6 +134,9 @@ class BestFrameWriter:
             details[_DATETIME_ORIGINAL] = taken.strftime("%Y:%m:%d %H:%M:%S")
             details[_SUBSEC_ORIGINAL] = f"{taken.microsecond // 1000:03d}"
             details[_OFFSET_ORIGINAL] = _utc_offset(taken)
+        fix = self.gps.position_at(timestamp) if self.gps is not None else None
+        if fix is not None:
+            _set_gps(exif, fix)
         picture.save(self.out_dir / name, format="JPEG", quality=JPEG_QUALITY, exif=exif)
         self.written.append(
             {

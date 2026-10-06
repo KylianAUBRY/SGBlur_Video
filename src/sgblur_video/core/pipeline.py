@@ -15,6 +15,7 @@ from sgblur_video.core.detect import YoloDetector
 from sgblur_video.core.detections_io import Detections, DetectionsFormatError, Footer, read_detections
 from sgblur_video.core.device import available_memory_gib, resolve_device, use_half
 from sgblur_video.core.frames import BestFrameWriter, extract_best_frames
+from sgblur_video.core.mp4boxes import Mp4BoxError, transplant
 from sgblur_video.core.postprocess import BlurPlan, build_blur_plan
 from sgblur_video.core.probe import VideoInfo, probe
 from sgblur_video.core.render import RegionSink, RenderStats, render
@@ -26,6 +27,7 @@ from sgblur_video.semantics.annotations import (
     dump_metadata,
     find_sign_tracks,
 )
+from sgblur_video.telemetry.gps import GOPRO_HANDLER, GpsTrack, read_gps
 
 logger = logging.getLogger(__name__)
 
@@ -177,8 +179,10 @@ def load_detections(path: Path, info: VideoInfo, *, allow_partial: bool) -> Dete
     return detections
 
 
-def _video_summary(info: VideoInfo) -> dict[str, Any]:
-    telemetry = "gpmf" if any(s.handler_name == "GoPro MET" and s.copyable for s in info.streams) else "none"
+def _video_summary(info: VideoInfo, gps: GpsTrack | None) -> dict[str, Any]:
+    telemetry = (
+        "gpmf" if any(s.handler_name == GOPRO_HANDLER and s.copyable for s in info.streams) else "none"
+    )
     return {
         "width": info.width,
         "height": info.height,
@@ -186,13 +190,27 @@ def _video_summary(info: VideoInfo) -> dict[str, Any]:
         "frame_count": info.frame_count,
         "projection": info.projection,
         "telemetry": telemetry,
+        "gps": gps is not None,
     }
 
 
-def _sign_annotations(detections: Detections, info: VideoInfo, settings: Settings) -> list[Annotation]:
-    tracks = find_sign_tracks(detections, settings, fps=info.fps)
+def _wrap_width(info: VideoInfo) -> int | None:
+    return info.width if info.projection == "equirectangular" else None
+
+
+def _sign_annotations(
+    detections: Detections, info: VideoInfo, settings: Settings, gps: GpsTrack | None
+) -> list[Annotation]:
+    wrap = _wrap_width(info)
+    tracks = find_sign_tracks(detections, settings, fps=info.fps, wrap_width=wrap)
     return build_annotations(
-        tracks, detections, settings, frame_size=(info.width, info.height), rotation=info.rotation
+        tracks,
+        detections,
+        settings,
+        frame_size=(info.width, info.height),
+        rotation=info.rotation,
+        wrap=wrap is not None,
+        gps=gps,
     )
 
 
@@ -241,14 +259,17 @@ def render_detections(
     Returns:
         Plan, rendering statistics, metadata and best-frame entries.
     """
-    plan = build_blur_plan(detections, settings, frame_size=(info.width, info.height), fps=info.fps)
+    plan = build_blur_plan(
+        detections, settings, frame_size=(info.width, info.height), fps=info.fps, wrap_width=_wrap_width(info)
+    )
     logger.info("blur plan: %s", plan.stats)
-    annotations = _sign_annotations(detections, info, settings)
+    gps = read_gps(info)
+    annotations = _sign_annotations(detections, info, settings, gps)
     logger.info("signs: %d annotations", len(annotations))
     debug = None
     if debug_output is not None:
         debug = (debug_output, DebugOverlay(plan, detections, settings.classes_with(ClassAction.ANNOTATE)))
-    writer = BestFrameWriter(frames_dir, annotations, info) if frames_dir is not None else None
+    writer = BestFrameWriter(frames_dir, annotations, info, gps=gps) if frames_dir is not None else None
     region_sink = region_sink_factory(plan) if region_sink_factory is not None else None
     stats = render(
         info,
@@ -263,12 +284,18 @@ def render_detections(
     )
     if writer is not None:
         writer.write_index()
+    try:
+        transplanted = asdict(transplant(info.path, output))
+    except Mp4BoxError as exc:
+        logger.warning("metadata boxes not transplanted: %s", exc)
+        transplanted = {}
     metadata = Metadata(
         blurring_id=blurring_id or str(uuid.uuid4()),
         service_name=settings.api_name,
         annotations=annotations,
-        video=_video_summary(info),
-        stats=_stats(plan, annotations, detections) | {"dropped_streams": stats.dropped_streams},
+        video=_video_summary(info, gps),
+        stats=_stats(plan, annotations, detections)
+        | {"dropped_streams": stats.dropped_streams, "restored_metadata": transplanted},
     )
     return RenderResult(
         plan=plan,
@@ -378,15 +405,18 @@ def run_signs(
         progress=progress,
     )
     detections = load_detections(detections_path, info, allow_partial=True)
-    plan = build_blur_plan(detections, settings, frame_size=(info.width, info.height), fps=info.fps)
-    annotations = _sign_annotations(detections, info, settings)
+    plan = build_blur_plan(
+        detections, settings, frame_size=(info.width, info.height), fps=info.fps, wrap_width=_wrap_width(info)
+    )
+    gps = read_gps(info)
+    annotations = _sign_annotations(detections, info, settings, gps)
     if frames_dir is not None:
-        writer = BestFrameWriter(frames_dir, annotations, info)
+        writer = BestFrameWriter(frames_dir, annotations, info, gps=gps)
         extract_best_frames(info, plan, writer, settings, max_frames=len(detections.frames))
     metadata = Metadata(
         service_name=settings.api_name,
         annotations=annotations,
-        video=_video_summary(info),
+        video=_video_summary(info, gps),
         stats=_stats(plan, annotations, detections),
     )
     write_metadata(metadata, output)

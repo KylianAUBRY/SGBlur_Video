@@ -40,6 +40,7 @@ from sgblur_video.config import ClassAction, Settings
 from sgblur_video.core.detect import class_groups
 from sgblur_video.core.detections_io import Detections
 from sgblur_video.core.geometry import Box, area, center, clip, expand, height, lerp, union_box, width
+from sgblur_video.video360.wrap import normalize, unwrap_towards
 
 Source = Literal["detected", "interpolated", "padded", "orphan"]
 
@@ -87,12 +88,14 @@ class BlurPlan:
         frames: Shapes per frame index (frames without shapes are absent).
         stats: Counters for the job metadata.
         chain_scores: Best detection score of each blurred chain (``keep=1`` keeps low-score chains).
+        wrap_width: Frame width of a 360° video (shapes may cross the 0°/360° seam), else ``None``.
     """
 
     frame_count: int
     frames: dict[int, list[BlurShape]] = field(default_factory=dict)
     stats: dict[str, int] = field(default_factory=dict)
     chain_scores: dict[str, float] = field(default_factory=dict)
+    wrap_width: int | None = None
 
     def shapes(self, index: int) -> list[BlurShape]:
         """Shapes to blur on frame ``index`` (empty list if none)."""
@@ -163,9 +166,12 @@ class Chain:
         """Majority class of the chain."""
         return Counter(o.cls for o in self.observations).most_common(1)[0][0]
 
-    def append(self, fragment: Fragment) -> None:
-        """Link a fragment that starts after the chain ends."""
-        self.observations.extend(fragment.observations)
+    def append(self, fragment: Fragment, wrap_width: float | None = None) -> None:
+        """Link a fragment that starts after the chain ends (unwrapped next to it on 360° video)."""
+        observations = fragment.observations
+        if wrap_width and self.observations:
+            observations = _unwrap_sequence(observations, self.observations[-1].box, wrap_width)
+        self.observations.extend(observations)
         self.fragments += 1
 
 
@@ -192,12 +198,28 @@ def _shift(box: Box, velocity: Box, frames: int) -> Box:
     )
 
 
-def fragments_from_detections(detections: Detections, groups: Mapping[str, str]) -> list[Fragment]:
+def _unwrap_sequence(
+    observations: Sequence[Observation], reference: Box, wrap_width: float
+) -> list[Observation]:
+    """Shift each observation by whole turns so the sequence stays continuous across the 360° seam."""
+    result = []
+    previous = reference
+    for obs in observations:
+        box = unwrap_towards(obs.box, previous, wrap_width)
+        result.append(Observation(obs.frame, box, obs.score, obs.cls) if box is not obs.box else obs)
+        previous = box
+    return result
+
+
+def fragments_from_detections(
+    detections: Detections, groups: Mapping[str, str], *, wrap_width: float | None = None
+) -> list[Fragment]:
     """Group detections of the given classes into tracker fragments and orphan fragments.
 
     Args:
         detections: Content of ``detections.jsonl``.
         groups: Class name to group name, for the classes to keep.
+        wrap_width: Frame width of a 360° video: tracks are kept continuous across the seam.
 
     Returns:
         Fragments sorted by start frame.
@@ -215,12 +237,16 @@ def fragments_from_detections(detections: Detections, groups: Mapping[str, str])
                 tracked.setdefault(det.track_id, []).append(obs)
     for key, observations in tracked.items():
         observations.sort(key=lambda o: o.frame)
+        if wrap_width:
+            observations = _unwrap_sequence(observations, observations[0].box, wrap_width)
         fragments.append(Fragment(key, groups[observations[0].cls], observations))
     fragments.sort(key=lambda f: (f.start, f.end))
     return fragments
 
 
-def link_fragments(fragments: Sequence[Fragment], *, max_gap: int, max_distance: float) -> list[Chain]:
+def link_fragments(
+    fragments: Sequence[Fragment], *, max_gap: int, max_distance: float, wrap_width: float | None = None
+) -> list[Chain]:
     """Chain fragments that are the same object seen with interruptions.
 
     A fragment is appended to the chain of the same group that ended at most
@@ -233,6 +259,8 @@ def link_fragments(fragments: Sequence[Fragment], *, max_gap: int, max_distance:
         fragments: Fragments sorted by start frame.
         max_gap: Maximum number of frames between two linked fragments.
         max_distance: Maximum centre distance, in box sizes.
+        wrap_width: Frame width of a 360° video: distances are measured across the 0°/360° seam,
+            so an object leaving on the right and coming back on the left stays one chain.
 
     Returns:
         Chains, in order of creation.
@@ -242,7 +270,7 @@ def link_fragments(fragments: Sequence[Fragment], *, max_gap: int, max_distance:
     synthetic_ids: Counter[str] = Counter()
     for fragment in fragments:
         active = [c for c in active if fragment.start - c.end <= max_gap]
-        first = fragment.observations[0]
+        first_observation = fragment.observations[0]
         best: Chain | None = None
         best_distance = math.inf
         for chain in active:
@@ -251,10 +279,15 @@ def link_fragments(fragments: Sequence[Fragment], *, max_gap: int, max_distance:
                 continue
             tail = chain.observations[-VELOCITY_SAMPLES:]
             predicted = _shift(tail[-1].box, _velocity(tail), gap)
-            size = max(width(predicted), height(predicted), width(first.box), height(first.box), 1.0)
-            (px, py), (fx, fy) = center(predicted), center(first.box)
+            first = (
+                unwrap_towards(first_observation.box, predicted, wrap_width)
+                if wrap_width
+                else first_observation.box
+            )
+            size = max(width(predicted), height(predicted), width(first), height(first), 1.0)
+            (px, py), (fx, fy) = center(predicted), center(first)
             distance = math.hypot(px - fx, py - fy) / size
-            ratio = max(area(predicted), 1.0) / max(area(first.box), 1.0)
+            ratio = max(area(predicted), 1.0) / max(area(first), 1.0)
             if (
                 distance <= max_distance * (1 + 0.1 * gap)
                 and 1 / LINK_MAX_AREA_RATIO <= ratio <= LINK_MAX_AREA_RATIO
@@ -267,7 +300,7 @@ def link_fragments(fragments: Sequence[Fragment], *, max_gap: int, max_distance:
             best = Chain(chain_id, fragment.group)
             chains.append(best)
             active.append(best)
-        best.append(fragment)
+        best.append(fragment, wrap_width)
     return chains
 
 
@@ -333,6 +366,7 @@ def build_blur_plan(
     *,
     frame_size: tuple[int, int],
     fps: float,
+    wrap_width: int | None = None,
 ) -> BlurPlan:
     """Compute the blur plan of a video from its detections.
 
@@ -341,6 +375,7 @@ def build_blur_plan(
         settings: Thresholds, linking, margins and padding.
         frame_size: Coded frame ``(width, height)``.
         fps: Average frame rate (converts durations to frames).
+        wrap_width: Frame width of a 360° (equirectangular) video, ``None`` for flat video.
 
     Returns:
         The blur plan, with statistics.
@@ -353,11 +388,12 @@ def build_blur_plan(
     max_gap_frames = max(0, round(settings.max_interpolation_gap_s * fps))
     padding, growth = settings.blur_temporal_padding_frames, settings.blur_padding_growth
 
-    fragments = fragments_from_detections(detections, groups)
+    fragments = fragments_from_detections(detections, groups, wrap_width=wrap_width)
     chains = link_fragments(
         fragments,
         max_gap=max(1, round(settings.link_max_gap_s * fps)),
         max_distance=settings.link_max_distance,
+        wrap_width=wrap_width,
     )
     stats: Counter[str] = Counter(fragments=len(fragments))
     chain_scores: dict[str, float] = {}
@@ -408,10 +444,15 @@ def build_blur_plan(
                 )
 
     frame_width, frame_height = frame_size
-    plan = BlurPlan(frame_count=frame_count, chain_scores=chain_scores)
+    plan = BlurPlan(frame_count=frame_count, chain_scores=chain_scores, wrap_width=wrap_width)
     for (frame, key), (box, source, cls) in sorted(regions.items(), key=lambda item: item[0]):
         enlarged = expand(box, settings.blur_box_margin)
-        if area(clip(enlarged, frame_width, frame_height)) <= 0:
+        if wrap_width:
+            # Horizontal position wraps around: only the vertical extent can leave the frame.
+            enlarged = normalize(enlarged, wrap_width)
+            if enlarged[3] <= 0 or enlarged[1] >= frame_height:
+                continue
+        elif area(clip(enlarged, frame_width, frame_height)) <= 0:
             continue
         kind: Literal["ellipse", "rect"] = "ellipse" if cls in ELLIPSE_CLASSES else "rect"
         plan.frames.setdefault(frame, []).append(BlurShape(kind, enlarged, cls, source, key))

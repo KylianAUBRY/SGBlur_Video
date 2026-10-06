@@ -309,13 +309,6 @@ class Settings(BaseSettings):
         description="Minimum number of detections for a sign track to produce an annotation.",
         json_schema_extra=_doc("Post-processing and blur"),
     )
-    seam_max_gap_s: float = Field(
-        0.5,
-        ge=0.0,
-        description="Maximum time between two tracks stitched across the 360° seam, in seconds.",
-        json_schema_extra=_doc("Post-processing and blur"),
-    )
-
     # --- Encoding ---------------------------------------------------------------------------
     encoder: Encoder = Field(
         "auto",

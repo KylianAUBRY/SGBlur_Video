@@ -19,6 +19,7 @@ import numpy.typing as npt
 from sgblur_video.core.detections_io import Detections
 from sgblur_video.core.geometry import Box, circumscribed_ellipse
 from sgblur_video.core.postprocess import BlurPlan
+from sgblur_video.video360.wrap import copies, normalize
 
 #: BGR colours per blur source.
 SOURCE_COLOURS: dict[str, tuple[int, int, int]] = {
@@ -64,29 +65,42 @@ class DebugOverlay:
             factor: Scale from coded-frame pixels to ``image`` pixels.
         """
         thickness = max(1, round(image.shape[1] / 960))
+        wrap = self._plan.wrap_width
         for shape in self._plan.shapes(index):
             colour = SOURCE_COLOURS[shape.source]
-            if shape.kind == "ellipse":
-                cx, cy, rx, ry = circumscribed_ellipse(shape.box)
-                cv2.ellipse(
-                    image,
-                    (round(cx * factor), round(cy * factor)),
-                    (max(1, round(rx * factor)), max(1, round(ry * factor))),
-                    0,
-                    0,
-                    360,
-                    colour,
-                    thickness,
-                )
-            else:
-                x1, y1, x2, y2 = (round(v * factor) for v in shape.box)
-                cv2.rectangle(image, (x1, y1), (x2, y2), colour, thickness)
-            text = f"{shape.cls} {shape.track_id or 'orphan'} {shape.source[0]}"
-            self._text(image, text, shape.box, factor, colour)
+            for box in copies(shape.box, wrap) if wrap else [shape.box]:
+                self._draw_shape(image, shape.kind, box, factor, colour, thickness)
+            text = f"{shape.cls} {shape.track_id} {shape.source[0]}"
+            self._text(image, text, normalize(shape.box, wrap) if wrap else shape.box, factor, colour)
         for label in self._signs.get(index, []):
             x1, y1, x2, y2 = (round(v * factor) for v in label.box)
             cv2.rectangle(image, (x1, y1), (x2, y2), SIGN_COLOUR, thickness)
             self._text(image, label.text, label.box, factor, SIGN_COLOUR)
+
+    @staticmethod
+    def _draw_shape(
+        image: npt.NDArray[np.uint8],
+        kind: str,
+        box: Box,
+        factor: float,
+        colour: tuple[int, int, int],
+        thickness: int,
+    ) -> None:
+        if kind == "ellipse":
+            cx, cy, rx, ry = circumscribed_ellipse(box)
+            cv2.ellipse(
+                image,
+                (round(cx * factor), round(cy * factor)),
+                (max(1, round(rx * factor)), max(1, round(ry * factor))),
+                0,
+                0,
+                360,
+                colour,
+                thickness,
+            )
+        else:
+            x1, y1, x2, y2 = (round(v * factor) for v in box)
+            cv2.rectangle(image, (x1, y1), (x2, y2), colour, thickness)
 
     @staticmethod
     def _text(

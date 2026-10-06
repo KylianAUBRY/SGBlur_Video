@@ -71,7 +71,9 @@ def analyze(
         projection=info.projection,
         profile=settings.detect_profile,
         tile_trigger_width=settings.tile_trigger_width,
+        equirect_pad_ratio=settings.equirect_pad_ratio,
     )
+    wrap_width = info.width if info.projection == "equirectangular" else None
     groups = class_groups(settings.class_policy)
     tracker_config = load_tracker_config(settings.tracker_config, info.fps)
     factor = min(1.0, settings.track_width / info.width)
@@ -96,6 +98,7 @@ def analyze(
         detection={
             "profile": settings.detect_profile.value,
             "conf": settings.conf_detect,
+            "equirect_pad_px": plan[0].pad,
             "passes": [
                 {
                     "id": p.id,
@@ -133,7 +136,7 @@ def analyze(
             raw = detector.detect(upright, plan, decoded.index)
             for det in raw:
                 det.box = unrotate_box(det.box, info.rotation, info.width, info.height)
-            merged = merge_detections(raw, settings.class_policy)
+            merged = merge_detections(raw, settings.class_policy, wrap_width=wrap_width)
             small = (
                 np.asarray(cv2.resize(full, track_size, interpolation=cv2.INTER_AREA), dtype=np.uint8)
                 if factor < 1
