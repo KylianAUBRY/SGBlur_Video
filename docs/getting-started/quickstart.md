@@ -20,7 +20,7 @@ from environment variables, e.g. `CONF_BLUR=0.1 uv run sgblur-video blur …`
 ([configuration](../reference/configuration.md)).
 
 On an Apple M4 Pro (MPS), end-to-end processing (analysis and rendering) runs
-at about 10 frames/s for 1080p and 1.5 to 2 frames/s for 8K 360° video.
+at about 10 frames/s for 1080p and about 3 frames/s for 8K 360° video (analysis 3.9 frames/s, rendering 14 frames/s).
 
 ## Web page
 
@@ -28,9 +28,12 @@ at about 10 frames/s for 1080p and 1.5 to 2 frames/s for 8K 360° video.
 uv run sgblur-video serve
 ```
 
-Open <http://localhost:8000/ui>, drop a video, follow the progress, then watch
-or download the blurred video, the list of traffic signs and their best
-pictures. The page only calls the HTTP API below; `WEB_UI=false` disables it.
+Open <http://localhost:8000/ui>, drop a video, optionally choose a range of
+frames with the bar under the preview (e.g. 20 frames for a quick test), follow
+the progress, then watch or download the blurred video, the list of traffic
+signs and their best pictures. Tick *Debug video* to also get the video with
+every blurred region outlined in the colour of its class (face, plate) and
+every sign, to see what the model found. The page only calls the HTTP API below; `WEB_UI=false` disables it.
 
 ## HTTP API
 

@@ -8,8 +8,10 @@ from PIL import Image
 
 from sgblur_video.config import Settings
 from sgblur_video.core.analyze import analyze
+from sgblur_video.core.decode import iter_frames
 from sgblur_video.core.pipeline import load_detections, render_detections
 from sgblur_video.core.probe import probe
+from sgblur_video.core.trim import FrameRange, trim_video
 from sgblur_video.telemetry.gps import read_gps
 from tests.data.fetch import fixture_path
 from tests.privacy.synthetic import FakeDetector, scenario
@@ -58,3 +60,24 @@ def test_gps_is_preserved_and_used_for_signs(tmp_path: Path, repo_root: Path) ->
         gps = picture.getexif().get_ifd(GPS_IFD)
     assert gps[1] == "N"
     assert gps[3] == "W"
+
+
+def test_gps_of_a_frame_range_stays_aligned(tmp_path: Path) -> None:
+    source = fixture_path("gopro-hero6-gps")
+    settings = Settings(encoder="libx264")
+    info = probe(source, settings)
+    first = 460  # 15.3 s: GPS fix (from 14 s on), in the middle of a 1 s telemetry packet
+    cut = tmp_path / "cut.mp4"
+    assert trim_video(info, settings, FrameRange(first, first + 60), cut) == 60
+    original, trimmed = read_gps(info), read_gps(probe(cut, settings))
+    assert original is not None
+    assert trimmed is not None
+    offset = [frame.time for frame in iter_frames(source, max_frames=first + 1)][first]
+    # Time t of the cut is time t + offset of the original: same interpolated position. The
+    # telemetry packet straddling the start is dropped: the cut has samples from 0.67 s to 1.6 s.
+    for t in (0.8, 1.1, 1.5):
+        here, there = trimmed.position_at(t), original.position_at(t + offset)
+        assert here is not None
+        assert there is not None
+        assert here.lat == pytest.approx(there.lat, abs=1e-7)
+        assert here.lon == pytest.approx(there.lon, abs=1e-7)

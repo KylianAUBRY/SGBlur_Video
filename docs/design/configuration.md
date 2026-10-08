@@ -47,7 +47,7 @@ leave faces/plates visible or keep personal data longer.
 
 | Name | Type | Default | Description | Privacy impact |
 |---|---|---|---|---|
-| `TRACKER_CONFIG` | path | `configs/trackers/tracktrack-recall.yaml` | Ultralytics tracker YAML (+ our `track_buffer_s` extension). | Indirect (gap filling relies on ids) |
+| `TRACKER_CONFIG` | path | `configs/trackers/flow.yaml` | Optical-flow tracker, or an Ultralytics tracker YAML (+ our `track_buffer_s` extension). | Indirect (gap filling relies on ids) |
 | `TRACK_WIDTH` | int | *1920* | Width of the frame used for tracking and camera-motion compensation. | — |
 
 ## Post-processing and blur
@@ -56,10 +56,11 @@ leave faces/plates visible or keep personal data longer.
 |---|---|---|---|---|
 | `BLUR_METHOD` | `pixelate_blur`\|`gaussian_strong`\|`solid` | `pixelate_blur` | Irreversible blur operation. | `gaussian_strong` weaker |
 | `PIXELATE_CELLS` | int | *6* | Max mosaic cells on the long side of a shape. | Higher ↑ risk |
-| `BLUR_BOX_MARGIN` | float | *0.15* | Enlargement of each box on each side (fraction of its size). | Lower ↑ risk |
-| `BLUR_TEMPORAL_PADDING_FRAMES` | int | *15* | Frames blurred before the first and after the last observation of a track / around an orphan. | Lower ↑ risk |
+| `BLUR_BOX_MARGIN` | float | *0.10* | Enlargement of each box on each side (fraction of its size). | Lower ↑ risk |
+| `BLUR_TEMPORAL_PADDING_FRAMES` | int | *12* | Frames blurred before the first and after the last observation of a track / around an orphan. | Lower ↑ risk |
 | `BLUR_PADDING_GROWTH` | float | *0.05* | Per-frame growth of padded boxes. | Lower ↑ risk |
 | `MAX_INTERPOLATION_GAP_S` | float | *2.0* | Longest gap filled by interpolation inside a track. | Lower ↑ risk |
+| `MAX_INTERPOLATION_JUMP` | float | *20* | Largest move (box sizes) between two detections filled by interpolation. | Lower ↑ risk |
 | `SIGN_MIN_TRACK_LENGTH` | int | *5* | Minimum observations for a sign annotation. | none |
 
 ## Encoding

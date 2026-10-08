@@ -15,7 +15,7 @@ import logging
 import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Literal, Protocol
+from typing import Literal, Protocol, runtime_checkable
 
 import numpy as np
 import numpy.typing as npt
@@ -227,13 +227,59 @@ def merge_detections(
     return merged
 
 
+@dataclass(frozen=True)
+class PreparedFrame:
+    """Inputs of one frame, prepared on the CPU ahead of inference.
+
+    Attributes:
+        inputs: ``(pass, image)`` for detectors that split preparation and inference
+            (:class:`YoloDetector`).
+        image: The upright frame itself, for detectors that only implement ``detect``.
+    """
+
+    inputs: tuple[tuple[DetectionPass, npt.NDArray[np.uint8]], ...] = ()
+    image: npt.NDArray[np.uint8] | None = None
+
+
+@runtime_checkable
+class StagedDetector(Protocol):
+    """A detector whose CPU preparation can run ahead of its inference (see ``core.analyze``)."""
+
+    def prepare(self, image: npt.NDArray[np.uint8], plan: Sequence[DetectionPass]) -> PreparedFrame:
+        """Build the input of every pass."""
+        ...
+
+    def infer(self, prepared: PreparedFrame) -> list[Detection]:
+        """Run the passes on prepared inputs."""
+        ...
+
+
+def prepare_frame(
+    detector: FrameDetector, image: npt.NDArray[np.uint8], plan: Sequence[DetectionPass]
+) -> PreparedFrame:
+    """The CPU part of detection, when the detector separates it (else the frame is kept as is)."""
+    if isinstance(detector, StagedDetector):
+        return detector.prepare(image, plan)
+    return PreparedFrame(image=image)
+
+
+def infer_frame(
+    detector: FrameDetector, prepared: PreparedFrame, plan: Sequence[DetectionPass], frame_index: int
+) -> list[Detection]:
+    """The inference part of detection for a frame prepared by :func:`prepare_frame`."""
+    if prepared.image is None and isinstance(detector, StagedDetector):
+        return detector.infer(prepared)
+    assert prepared.image is not None  # noqa: S101 - unstaged detectors keep the frame
+    return detector.detect(prepared.image, plan, frame_index)
+
+
 class YoloDetector:
     """Ultralytics YOLO behind the :class:`FrameDetector` protocol.
 
     Args:
         weights: Path of the checkpoint.
         device: Ultralytics device string (``cpu``, ``mps``, ``cuda:0``…).
-        half: Run in FP16 (CUDA only).
+        half: Run in FP16 (CUDA or MPS).
         conf: Minimum score kept (``CONF_DETECT``).
         classes: Class names to detect; others are filtered by the model.
     """
@@ -280,35 +326,59 @@ class YoloDetector:
             )
         return out
 
-    def detect(
-        self, image: npt.NDArray[np.uint8], plan: Sequence[DetectionPass], frame_index: int
-    ) -> list[Detection]:
-        """Run every pass of the plan on one upright BGR frame.
+    def prepare(self, image: npt.NDArray[np.uint8], plan: Sequence[DetectionPass]) -> PreparedFrame:
+        """CPU part: the input image of every pass (360° padding, tiles). Safe to run in another thread.
 
-        Tiles of the same size are batched in one inference call.
+        Global passes with the same padding share one padded image.
         """
-        detections: list[Detection] = []
-        tiles_by_size: dict[int, list[DetectionPass]] = {}
+        padded: dict[int, npt.NDArray[np.uint8]] = {}
+        inputs: list[tuple[DetectionPass, npt.NDArray[np.uint8]]] = []
         for detection_pass in plan:
             if detection_pass.kind == "global":
                 pad = detection_pass.pad
-                source = pad_circular(image, pad) if pad else image
+                if pad and pad not in padded:
+                    padded[pad] = pad_circular(image, pad)
+                inputs.append((detection_pass, padded[pad] if pad else image))
+            else:
+                assert detection_pass.region is not None  # noqa: S101 - tiles always have a region
+                inputs.append((detection_pass, crop_wrapped(image, detection_pass.region)))
+        return PreparedFrame(inputs=tuple(inputs))
+
+    def infer(self, prepared: PreparedFrame) -> list[Detection]:
+        """GPU part: run every pass on its prepared input; tiles of the same size are batched.
+
+        On CPU tiles run one at a time: a batch is no faster there and holds the activations of
+        every tile at once (8K 360° in Docker: 5.95 GB peak batched, 4.5 GB one at a time).
+        """
+        detections: list[Detection] = []
+        tiles_by_size: dict[int, list[tuple[DetectionPass, npt.NDArray[np.uint8]]]] = {}
+        for detection_pass, source in prepared.inputs:
+            if detection_pass.kind == "global":
+                pad = detection_pass.pad
                 for box, score, cls_id in self._predict([source], detection_pass.imgsz)[0]:
                     shifted = translate(box, -pad, 0) if pad else box
                     detections.append(Detection(self._names[cls_id], score, shifted, [detection_pass.id]))
             else:
-                tiles_by_size.setdefault(detection_pass.imgsz, []).append(detection_pass)
-        for imgsz, tiles in tiles_by_size.items():
-            crops = []
-            for tile in tiles:
+                tiles_by_size.setdefault(detection_pass.imgsz, []).append((detection_pass, source))
+        batches = [
+            (imgsz, group)
+            for imgsz, tiles in tiles_by_size.items()
+            for group in ([[tile] for tile in tiles] if self._device == "cpu" else [tiles])
+        ]
+        for imgsz, group in batches:
+            batch = self._predict([source for _, source in group], imgsz)
+            for (tile, _source), results in zip(group, batch, strict=True):
                 assert tile.region is not None  # noqa: S101 - tiles always have a region
-                crops.append(crop_wrapped(image, tile.region))
-            for tile, results in zip(tiles, self._predict(crops, imgsz), strict=True):
-                assert tile.region is not None  # noqa: S101
                 for box, score, cls_id in results:
                     shifted = translate(box, tile.region[0], tile.region[1])
                     detections.append(Detection(self._names[cls_id], score, shifted, [tile.id]))
         return detections
+
+    def detect(
+        self, image: npt.NDArray[np.uint8], plan: Sequence[DetectionPass], frame_index: int
+    ) -> list[Detection]:
+        """Run every pass of the plan on one upright BGR frame (``prepare`` then ``infer``)."""
+        return self.infer(self.prepare(image, plan))
 
 
 def pad_circular(image: npt.NDArray[np.uint8], pad: int) -> npt.NDArray[np.uint8]:
@@ -318,13 +388,24 @@ def pad_circular(image: npt.NDArray[np.uint8], pad: int) -> npt.NDArray[np.uint8
 
 
 def crop_wrapped(image: npt.NDArray[np.uint8], region: tuple[int, int, int, int]) -> npt.NDArray[np.uint8]:
-    """Crop a region whose horizontal range may cross the frame edges (wrapping around)."""
+    """Crop a region whose horizontal range may cross the frame edges (wrapping around).
+
+    The wrapped parts are joined from plain slices: indexing columns with an index
+    array took 45 ms per 8K tile, slices take a few milliseconds.
+    """
     x1, y1, x2, y2 = region
     width = image.shape[1]
+    rows = image[y1:y2]
     if x1 >= 0 and x2 <= width:
-        return np.ascontiguousarray(image[y1:y2, x1:x2])
-    columns = np.arange(x1, x2) % width
-    cropped: npt.NDArray[np.uint8] = np.ascontiguousarray(image[y1:y2][:, columns])
+        return np.ascontiguousarray(rows[:, x1:x2])
+    parts = []
+    x = x1
+    while x < x2:
+        start = x % width
+        length = min(x2 - x, width - start)
+        parts.append(rows[:, start : start + length])
+        x += length
+    cropped: npt.NDArray[np.uint8] = np.concatenate(parts, axis=1)
     return cropped
 
 

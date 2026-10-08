@@ -7,6 +7,7 @@ from sgblur_video.config import DEFAULT_CLASS_POLICY, ClassAction, DetectProfile
 from sgblur_video.core.decode import rotate_upright
 from sgblur_video.core.detect import (
     Detection,
+    YoloDetector,
     build_plan,
     class_groups,
     merge_detections,
@@ -101,3 +102,17 @@ def test_rotation_round_trip_matches_numpy(rotation: int) -> None:
     upright_box = (float(xs.min()), float(ys.min()), float(xs.max() + 1), float(ys.max() + 1))
     assert rotate_box((30, 10, 50, 20), rotation, 100, 60) == upright_box
     assert unrotate_box(upright_box, rotation, 100, 60) == (30, 10, 50, 20)
+
+
+@pytest.mark.parametrize(("device", "tile_batches"), [("cpu", [1, 1]), ("mps", [2])])
+def test_tiles_are_batched_on_accelerators_only(device: str, tile_batches: list[int]) -> None:
+    plan = build_plan(
+        2048, 1024, projection="equirectangular", profile=DetectProfile.STANDARD, tile_trigger_width=2048
+    )
+    calls: list[int] = []
+    detector = object.__new__(YoloDetector)  # no checkpoint: inference is replaced below
+    detector._device, detector._names = device, ("face",)
+    detector._predict = lambda images, imgsz: calls.append(len(images)) or [[] for _ in images]  # type: ignore[method-assign]
+    detector.infer(detector.prepare(np.zeros((1024, 2048, 3), dtype=np.uint8), plan))
+    globals_count = sum(p.kind == "global" for p in plan)
+    assert calls == [1] * globals_count + tile_batches

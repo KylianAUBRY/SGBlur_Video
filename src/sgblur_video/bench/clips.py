@@ -18,7 +18,7 @@ from av.video.stream import VideoStream
 
 from sgblur_video.bench.cvat import KeyBox, PreTrack
 from sgblur_video.config import ClassAction, Settings
-from sgblur_video.core.decode import to_fraction
+from sgblur_video.core.decode import configure_decoder, to_fraction
 from sgblur_video.core.detect import class_groups
 from sgblur_video.core.detections_io import Detections
 from sgblur_video.core.encode import choose_encoder
@@ -113,7 +113,7 @@ def cut_clip(
         av.open(str(proxy_path), "w") as proxy_out,
     ):
         stream = source.streams.video[0]
-        stream.thread_type = "AUTO"
+        configure_decoder(stream)
         time_base = to_fraction(stream.time_base) if stream.time_base else Fraction(1, 90000)
         origin = stream.start_time or 0
         if start_s > 0:

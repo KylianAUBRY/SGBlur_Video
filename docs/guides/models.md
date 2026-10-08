@@ -5,6 +5,49 @@ SGBlur-Video does not train its own detector: it uses the models published by
 [ADR-0009](../adr/0009-model-registry-and-class-policy.md)). Models are declared
 in `models/registry.yaml`; no model name is hard-coded anywhere else.
 
+## Choosing a model
+
+Three variables, by precedence (the `--model` option of a command beats them all):
+
+| Variable | Value | Use |
+|---|---|---|
+| `MODEL_PATH` | Path of a `.pt` checkpoint | Try **any** model without registering it |
+| `MODEL_NAME` | A registry name (`sgblur-video models list`), or a `.pt` path | Pick a registered model |
+| `MODEL_FAMILY` | `yolo26` (default), `yolo11` | Automatic choice: the largest model of the family that fits the accelerator memory |
+
+```bash
+uv run sgblur-video models list                            # registered models; * marks the one in use
+MODEL_NAME=yolo11l uv run sgblur-video blur in.mp4 out.mp4  # a registered model (downloaded and verified)
+MODEL_PATH=~/models/candidate.pt uv run sgblur-video serve  # the web page and API with a local file
+uv run sgblur-video blur in.mp4 out.mp4 --model ~/models/candidate.pt
+```
+
+Registered models: `yolo26s` (default, the only one with the `direction` class),
+and the older SGBlur `yolo11n`, `yolo11s`, `yolo11m`, `yolo11l`.
+
+A local checkpoint is used in place. Its classes are read from the file and
+must include every class configured to be blurred (`face`, `plate`): otherwise
+it is refused at start-up. Its Panoramax tag is `SGBlur-Video-<file name>/local-<8 hex digits of its SHA-256>`,
+so annotations made by two different files can be told apart. Check a file
+before using it:
+
+```bash
+uv run sgblur-video models inspect ~/models/candidate.pt   # classes, SHA-256, usable or not, registry entry
+```
+
+### Comparing models
+
+Every benchmark takes several `--model` options, names or paths:
+
+```bash
+uv run sgblur-video benchmark speed video.mp4 --model yolo26s --model yolo11l --model ~/models/candidate.pt
+uv run sgblur-video benchmark privacy --dataset ~/sgblur-video-privacy --model ~/models/candidate.pt
+```
+
+The speed benchmark counts detections, which says nothing about missed faces:
+only the privacy benchmark on annotated clips measures that. Reports name
+models by tag, never by path.
+
 ## Registry entry fields
 
 | Field | Meaning |
@@ -23,7 +66,8 @@ in `models/registry.yaml`; no model name is hard-coded anywhere else.
 
 ## Adding a model (for example a YOLO27 release of SGBlur)
 
-1. Download the checkpoint and compute its hash: `shasum -a 256 model.pt`.
+1. Try it first with `MODEL_PATH` (above). `sgblur-video models inspect model.pt`
+   prints its hash, size and classes, and a registry entry to complete.
 2. Read its class names (`model.names` in Ultralytics) and check that `face` and
    `plate` are present: a model without a class configured to be blurred is
    refused at start-up.

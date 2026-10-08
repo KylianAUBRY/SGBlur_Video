@@ -15,6 +15,7 @@ import logging
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from fractions import Fraction
 from pathlib import Path
 from typing import cast
 
@@ -24,7 +25,7 @@ from av.video.stream import VideoStream
 
 from sgblur_video.config import Settings
 from sgblur_video.core.debug import DEBUG_MAX_WIDTH, DebugOverlay
-from sgblur_video.core.decode import to_bgr
+from sgblur_video.core.decode import configure_decoder, to_bgr, to_fraction
 from sgblur_video.core.encode import EncoderChoice, choose_encoder
 from sgblur_video.core.geometry import Box
 from sgblur_video.core.postprocess import BlurPlan, BlurShape
@@ -73,6 +74,89 @@ class RenderStats:
 def _wrapped(box: Box, wrap_width: int | None) -> list[Box]:
     """The box, plus its copies one turn left and right on 360° video (the seam is blurred on both sides)."""
     return copies(box, wrap_width) if wrap_width else [box]
+
+
+#: After the last frame of a range, copied packets are read this much further (interleaving).
+_DRAIN_MARGIN_S = 2
+
+
+def _packet_seconds(packet: av.Packet[av.stream.Stream]) -> Fraction:
+    """Presentation time of a packet, in seconds."""
+    timestamp = packet.pts if packet.pts is not None else packet.dts
+    return (timestamp or 0) * to_fraction(packet.time_base)
+
+
+class _RangeCopier:
+    """Audio and telemetry packets of a frame range (``render(first_frame=…, allow_short=…)``).
+
+    A packet is kept when its time falls between the first rendered frame and the end of the
+    last one. Both are only known once the decoder outputs those frames, several packets after
+    the demuxer delivered the matching audio, so packets wait in a queue until they can be
+    decided. With ``shift``, kept packets are moved to start at 0 like the video.
+    """
+
+    def __init__(
+        self,
+        target: av.container.OutputContainer,
+        copies: dict[int, av.stream.Stream],
+        *,
+        shift: bool,
+        info: VideoInfo,
+    ) -> None:
+        self._target = target
+        self._copies = copies
+        self._shift = shift
+        rate = to_fraction(info.avg_frame_rate)
+        self._frame_duration = 1 / rate if rate > 0 else Fraction(1, 30)
+        self._pending: list[av.Packet[av.stream.Stream]] = []
+        self._start: Fraction | None = None
+        self.end: Fraction | None = None
+
+    def add(self, packet: av.Packet[av.stream.Stream]) -> None:
+        """A copied packet from the demuxer."""
+        if self.end is not None:
+            self._decide(packet)
+        else:
+            self._pending.append(packet)
+
+    def skip_to(self, frame_s: Fraction) -> None:
+        """A frame before the range was skipped: earlier packets are before the range too."""
+        self._pending = [p for p in self._pending if _packet_seconds(p) >= frame_s]
+
+    def rendered(self, frame_s: Fraction) -> None:
+        """A frame of the range is rendered: packets before it are decided."""
+        if self._start is None:
+            self._start = frame_s
+        ready = [p for p in self._pending if _packet_seconds(p) < frame_s]
+        self._pending = [p for p in self._pending if _packet_seconds(p) >= frame_s]
+        for packet in ready:
+            self._decide(packet)
+
+    def finish(self, last_frame_s: Fraction) -> None:
+        """The last frame of the range is rendered: decide every waiting packet."""
+        self.end = last_frame_s + self._frame_duration
+        waiting, self._pending = self._pending, []
+        for packet in waiting:
+            self._decide(packet)
+
+    def past_end(self, packet: av.Packet[av.stream.Stream]) -> bool:
+        """Whether a packet is far enough after the range to stop reading the source."""
+        return self.end is not None and _packet_seconds(packet) >= self.end + _DRAIN_MARGIN_S
+
+    def _decide(self, packet: av.Packet[av.stream.Stream]) -> None:
+        seconds = _packet_seconds(packet)
+        if packet.time_base is None or (self.end is not None and seconds >= self.end):
+            return
+        if self._shift:
+            if self._start is None or seconds < self._start:
+                return
+            shift = round(self._start / to_fraction(packet.time_base))
+            if packet.dts is not None:
+                packet.dts -= shift
+            if packet.pts is not None:
+                packet.pts -= shift
+        packet.stream = self._copies[packet.stream.index]
+        self._target.mux(packet)
 
 
 def _stream_label(stream: av.stream.Stream) -> str:
@@ -125,6 +209,8 @@ def render(
     settings: Settings,
     *,
     max_frames: int | None = None,
+    first_frame: int = 0,
+    allow_short: bool = False,
     debug: tuple[Path, DebugOverlay] | None = None,
     frame_sink: FrameSink | None = None,
     region_sink: RegionSink | None = None,
@@ -138,6 +224,10 @@ def render(
         output: Output file (MP4 or MOV, by extension).
         settings: Blur method, cells, encoder settings.
         max_frames: Stop after this many frames (must match the analysis).
+        first_frame: Skip the source frames before this one (frame range of a job). The output
+            then starts at 0: video, audio and telemetry are shifted by the time of that frame, and
+            copied packets from before it are dropped. The plan is indexed from that frame.
+        allow_short: Accept a source that ends before ``plan.frame_count`` frames (at least one).
         debug: Optional ``(path, overlay)`` to also write an annotated debug video.
         frame_sink: Optional callback receiving each blurred frame (best-frame pictures).
         region_sink: Optional callback receiving original frames with their shapes (``keep=1``).
@@ -147,7 +237,8 @@ def render(
         Statistics of the rendering.
 
     Raises:
-        RenderError: If the number of rendered frames differs from the plan.
+        RenderError: If the number of rendered frames differs from the plan (with ``allow_short``:
+            if no frame was rendered).
     """
     started = time.monotonic()
     stats = RenderStats()
@@ -155,7 +246,10 @@ def render(
     total = min(plan.frame_count, max_frames) if max_frames is not None else plan.frame_count
     with av.open(str(info.path)) as source, av.open(str(output), "w") as target:
         in_video = source.streams.video[0]
-        in_video.thread_type = "AUTO"
+        configure_decoder(in_video)
+        skipped = 0
+        offset_pts: int | None = None  # pts of the first rendered frame, with first_frame
+        last_s = Fraction(0)
         choice = choose_encoder(info, settings)
         stats.encoder = choice.codec
         out_video = _open_video_stream(target, info, choice)
@@ -172,6 +266,8 @@ def render(
             copies[stream.index] = copy
             stats.copied_streams.append(_stream_label(stream))
         target.metadata.update({k: v for k, v in info.metadata.items() if k not in _SKIPPED_METADATA})
+        ranged = first_frame > 0 or allow_short
+        copier = _RangeCopier(target, copies, shift=first_frame > 0, info=info) if ranged else None
 
         debug_container, debug_stream, debug_factor = (None, None, 1.0)
         if debug is not None:
@@ -211,18 +307,46 @@ def render(
 
         try:
             for packet in source.demux():
+                is_copied = packet.stream.index in copies and packet.dts is not None
                 if stats.frames >= total:
-                    break
+                    # A range keeps audio and telemetry up to the end of its last frame, which the
+                    # demuxer may deliver later (packets are interleaved by time).
+                    if copier is None or copier.end is None:
+                        break
+                    if is_copied:
+                        if copier.past_end(packet):
+                            break
+                        copier.add(packet)
+                    continue
                 if packet.stream.index == in_video.index:
                     for frame in packet.decode():
                         if not isinstance(frame, av.VideoFrame):
                             continue
+                        frame_s = (frame.pts or 0) * to_fraction(frame.time_base or in_video.time_base)
+                        if skipped < first_frame:
+                            skipped += 1
+                            if copier is not None:
+                                copier.skip_to(frame_s)
+                            continue
                         if stats.frames >= total:
                             break
+                        if first_frame and frame.pts is not None:
+                            offset_pts = frame.pts if offset_pts is None else offset_pts
+                            frame.pts -= offset_pts
+                        if copier is not None:
+                            copier.rendered(frame_s)
                         encode(frame)
-                elif packet.stream.index in copies and packet.dts is not None:
-                    packet.stream = copies[packet.stream.index]
-                    target.mux(packet)
+                        last_s = frame_s
+                        if copier is not None and stats.frames >= total:
+                            copier.finish(frame_s)
+                elif is_copied:
+                    if copier is not None:
+                        copier.add(packet)
+                    else:
+                        packet.stream = copies[packet.stream.index]
+                        target.mux(packet)
+            if copier is not None and copier.end is None and stats.frames:
+                copier.finish(last_s)  # the source ended before the end of the range
             target.mux(out_video.encode(None))
             if debug_container is not None and debug_stream is not None:
                 debug_container.mux(debug_stream.encode(None))
@@ -230,7 +354,10 @@ def render(
             if debug_container is not None:
                 debug_container.close()
     stats.elapsed_s = round(time.monotonic() - started, 2)
-    if stats.frames != total:
+    if allow_short and stats.frames == 0:
+        msg = f"no frame from frame {first_frame}: the video has {skipped} frames"
+        raise RenderError(msg)
+    if stats.frames != total and not allow_short:
         msg = f"rendered {stats.frames} frames, expected {total}"
         raise RenderError(msg)
     logger.info(

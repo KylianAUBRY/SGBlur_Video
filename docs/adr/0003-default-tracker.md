@@ -1,9 +1,13 @@
 ---
-status: accepted (thresholds provisional until the privacy benchmark on annotated clips)
-date: 2026-10-06
+status: accepted (optical flow since 2026-10-07; re-check on the annotated clips)
+date: 2026-10-07
 ---
 
-# Default tracker: TrackTrack with a recall-oriented configuration
+# Default tracker: optical flow (was TrackTrack with a recall-oriented configuration)
+
+The decision of 2026-10-06 (TrackTrack) is kept below for its measurements; it
+was replaced on 2026-10-07 by the optical-flow tracker, see
+[the last section](#optical-flow-tracker-2026-10-07).
 
 ## Context and Problem Statement
 
@@ -82,3 +86,77 @@ be compared on the annotated clips (`sgblur-video benchmark trackers --dataset`)
 and this section updated. Two leads for later work, not needed for privacy:
 tracking on the best-pass box instead of the cross-pass union, and a lighter
 "confirm on the next frame" rule for flickering detections.
+
+## Optical-flow tracker (2026-10-07)
+
+### Problem
+
+On 8K 360° video filmed from a car, users saw walls of padded plate boxes. On a
+38-frame parking-lot sample, the detector found about 7 plates per frame
+(54 of SGBlur's 55 detections on the same frames, same model), but TrackTrack
+followed 4 of 265 plate detections: a plate parked a few metres away moves
+about 70 px between frames at 8K, more than its own width, so consecutive
+boxes do not overlap and IoU-based association (with or without GMC) fails.
+Every plate became a dozen fragments, each padded 15 frames on both sides:
+107 plate chains and 79 blurred plate regions per frame.
+
+### Design
+
+`tracker_type: flow` (`src/sgblur_video/core/flowtrack.py`, `configs/trackers/flow.yaml`),
+one tracker per class group, at `TRACK_WIDTH`:
+
+1. each track's box is moved by the median pyramidal Lucas-Kanade flow of a
+   4×4 grid over the box enlarged by one box size on each side
+   (forward-backward error < 2 px; too few good points: last motion kept);
+2. tracks and detections are matched by centre distance, by optimal
+   assignment (`lap`), within 2 box sizes for boxes up to 32 px and half a box
+   size beyond (a whole box size let face tracks jump to the next pedestrian);
+   distances wrap around the 360° seam, areas must be within a factor 4;
+3. unmatched detections start tracks; a track survives 1 s without detection,
+   its box still following the flow.
+
+The flow follows each object's parallax, which no single camera-motion model
+describes in an equirectangular frame.
+
+### Measurements
+
+Same cached YOLO26s detections, re-tracked; default post-processing. Without
+annotated clips yet, privacy is checked against **another model**: faces and
+plates found by YOLO11l (score ≥ 0.4) on every frame must be covered by a blur
+region. Four clips: the parking-lot sample (38 frames), `q360-ville` and
+`q360-fin` (8K 360°, 300 frames), `gopro-pietons` (1080p pedestrians, 300 frames).
+
+| Clip | Tracker | Plate chains | Plate area | Plates covered | Face chains | Face area | Faces covered |
+|---|---|---|---|---|---|---|---|
+| parking | TrackTrack | 107 | 3.25 % | 90/92 | 16 | 0.32 % | 2/3 |
+| parking | flow | 45 | 2.66 % | 90/92 | 11 | 0.46 % | 2/3 |
+| q360-ville | TrackTrack | 232 | 1.24 % | 558/591 | 463 | 2.75 % | 587/647 |
+| q360-ville | flow | 96 | 1.20 % | 560/591 | 178 | 2.02 % | 588/647 |
+| q360-fin | TrackTrack | 367 | 2.70 % | 863/881 | 167 | 0.70 % | 116/142 |
+| q360-fin | flow | 115 | 2.03 % | 866/881 | 82 | 0.77 % | 120/142 |
+| gopro-pietons | TrackTrack | — | — | — | 30 | 20.74 % | 551/644 |
+| gopro-pietons | flow | — | — | — | 14 | 19.37 % | 553/644 |
+
+Area = mean share of the frame inside plate (or face) blur regions.
+
+- The flow tracker follows 96–100 % of the detections of the 300-frame clips
+  (TrackTrack: 0–16 % on 8K 360°, 71 % on 1080p) and divides the number of
+  chains by 2 to 4.
+- It covers at least as many reference faces and plates on every clip
+  (total 1516 plates and 1263 faces against 1511 and 1256).
+- Tracking costs 14–15 ms per 8K frame (TrackTrack: 16–17 ms) and 2.7 ms per
+  1080p frame (11.5 ms).
+- Sweeps: a gate of 3 box sizes lost 5 references on two clips; a 2 s track
+  buffer lowered the area further but lost 1–2 references (and moved the
+  pedestrian clip by ±10 faces between 1.5 and 2 s: differences under ~5 are
+  noise); `fb_error` 2 px covered more than 1 px. Shortening the 15-frame
+  padding to 8 frames lost up to 5 references per clip with either tracker:
+  padding stays.
+- The synthetic privacy oracle passes with both trackers (`tests/privacy`).
+
+Decision: **the optical-flow tracker is the default**. The blurred area falls
+less than the number of chains because every chain end is still padded;
+the next lever is to make padding follow the flow instead of a straight-line
+extrapolation. The comparison will be repeated on the annotated clips
+(`sgblur-video benchmark trackers --dataset`).
+

@@ -1,0 +1,15 @@
+# sgblur-video default tracker: optical flow (src/sgblur_video/core/flowtrack.py, ADR-0003).
+#
+# Each track's box follows the optical flow of the image around it, then is
+# matched to the frame's detections by centre distance. Made for small objects
+# that move more than their own width between frames (plates on 8K 360° video
+# filmed from a car), which overlap-based trackers cannot follow. Values tuned
+# on four clips against faces and plates found by another model (ADR-0003).
+
+tracker_type: flow
+gate: 2.0           # matching distance after the flow, in box sizes, for boxes up to gate_cap px
+gate_cap: 32        # tracking px; larger boxes get large_gate box sizes (at least gate x gate_cap px)
+large_gate: 0.5     # box sizes: a whole box would let a face track jump to the next face of a group
+context: 1.0        # flow measured on the box enlarged by 1 box size on each side
+fb_error: 2.0       # largest forward-backward error of a flow point, tracking px
+track_buffer_s: 1.0 # seconds a track survives without detection (its box keeps following the flow)

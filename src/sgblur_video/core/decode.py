@@ -38,6 +38,20 @@ class DecodedFrame:
     frame: av.VideoFrame
 
 
+#: Above this frame size (4K UHD) the decoder uses at most ``LARGE_FRAME_THREADS`` threads.
+LARGE_FRAME_PIXELS = 3840 * 2160
+#: With one thread per core, frame-threaded HEVC decoding of 8K 10-bit video held 2.6 GB on a
+#: 14-core machine; 4 threads held 0.9 GB and decoded as fast (step-9 measurement).
+LARGE_FRAME_THREADS = 4
+
+
+def configure_decoder(stream: av.video.stream.VideoStream) -> None:
+    """Multi-threaded decoding, with fewer threads (less memory) for frames above 4K."""
+    stream.thread_type = "AUTO"
+    if stream.codec_context.width * stream.codec_context.height > LARGE_FRAME_PIXELS:
+        stream.codec_context.thread_count = LARGE_FRAME_THREADS
+
+
 def iter_frames(path: Path, *, max_frames: int | None = None) -> Iterator[DecodedFrame]:
     """Decode the first video stream of a file, frame by frame.
 
@@ -50,7 +64,7 @@ def iter_frames(path: Path, *, max_frames: int | None = None) -> Iterator[Decode
     """
     with av.open(str(path)) as container:
         stream = container.streams.video[0]
-        stream.thread_type = "AUTO"
+        configure_decoder(stream)
         time_base = to_fraction(stream.time_base) if stream.time_base else Fraction(1, 90000)
         first_pts: int | None = None
         last_pts = -1

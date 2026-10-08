@@ -18,15 +18,16 @@ Example:
 
 import hashlib
 import logging
+import re
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Literal, Self
+from typing import Literal, Self, cast
 
 import httpx
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, model_validator
 
-from sgblur_video.config import ClassAction
+from sgblur_video.config import ClassAction, Settings
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +49,7 @@ class ModelEntry(BaseModel):
         version: Version published in ``detection_model`` tags (``<name>/<version>``).
         file: File name inside ``MODELS_DIR``.
         url: Pinned download URL (a commit-addressed URL, never a branch).
+        local_path: Checkpoint used in place (``MODEL_PATH``), for entries made by :func:`local_entry`.
         sha256: Expected SHA-256 of the file, lowercase hex.
         size_bytes: Expected file size, used for download progress and sanity checks.
         classes: Class names provided by the checkpoint, in the model's order.
@@ -63,20 +65,24 @@ class ModelEntry(BaseModel):
     family: str = Field(min_length=1)
     version: str = Field(min_length=1)
     file: str = Field(pattern=r"^[^/\\]+$")
-    url: HttpUrl
+    url: HttpUrl | None = None
+    local_path: Path | None = None
     sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     size_bytes: int | None = Field(None, gt=0)
     classes: tuple[str, ...] = Field(min_length=1)
     train_imgsz: int = Field(gt=0)
     min_memory_gib: float = Field(ge=0)
     licence: str
-    source: HttpUrl
+    source: HttpUrl | None = None
 
     @model_validator(mode="after")
     def _unique_classes(self) -> Self:
-        """Reject duplicated class names."""
+        """Reject duplicated class names, and entries that can be neither downloaded nor found."""
         if len(set(self.classes)) != len(self.classes):
             msg = f"model {self.name!r}: duplicated class names in {list(self.classes)}"
+            raise ValueError(msg)
+        if self.url is None and self.local_path is None:
+            msg = f"model {self.name!r}: a registry entry needs a url"
             raise ValueError(msg)
         return self
 
@@ -101,6 +107,10 @@ class ModelRegistry(BaseModel):
         duplicates = sorted({name for name in names if names.count(name) > 1})
         if duplicates:
             msg = f"duplicated model names: {duplicates}"
+            raise ValueError(msg)
+        local = [entry.name for entry in self.models if entry.url is None or entry.local_path is not None]
+        if local:
+            msg = f"registry entries need a pinned url and no local_path (use MODEL_PATH): {local}"
             raise ValueError(msg)
         return self
 
@@ -256,6 +266,11 @@ def ensure_weights(entry: ModelEntry, models_dir: Path, *, client: httpx.Client 
     Raises:
         WeightsError: On download failure or verification mismatch.
     """
+    if entry.local_path is not None:
+        if not entry.local_path.is_file():
+            msg = f"model file not found: {entry.local_path}"
+            raise WeightsError(msg)
+        return entry.local_path
     models_dir.mkdir(parents=True, exist_ok=True)
     target = models_dir / entry.file
     if target.exists() and _sha256(target) == entry.sha256:
@@ -284,3 +299,120 @@ def ensure_weights(entry: ModelEntry, models_dir: Path, *, client: httpx.Client 
         raise WeightsError(msg)
     temporary.replace(target)
     return target
+
+
+#: Suffixes that make ``MODEL_NAME`` / ``--model`` a checkpoint path rather than a registry name.
+CHECKPOINT_SUFFIXES = (".pt", ".pth")
+
+
+def is_model_path(value: str) -> bool:
+    """Whether a ``--model`` / ``MODEL_NAME`` value designates a file rather than a registry entry."""
+    return value.lower().endswith(CHECKPOINT_SUFFIXES) or "/" in value or "\\" in value
+
+
+def checkpoint_info(path: Path) -> dict[str, object]:
+    """What an Ultralytics checkpoint says about itself, without building the model.
+
+    Args:
+        path: ``.pt`` file.
+
+    Returns:
+        ``classes`` (names in model order), ``train_imgsz``, ``date`` and ``ultralytics``
+        version when present, ``sha256`` and ``size_bytes``.
+
+    Raises:
+        WeightsError: If the file is missing or is not a readable checkpoint.
+    """
+    from ultralytics.nn.tasks import torch_safe_load
+
+    if not path.is_file():
+        msg = f"model file not found: {path}"
+        raise WeightsError(msg)
+    try:
+        # Ultralytics' own loader (it maps the module names of older releases). Checkpoints are
+        # pickles of model objects: like Ultralytics itself, this only loads files the operator
+        # chose to run.
+        checkpoint, _ = torch_safe_load(str(path))
+    except Exception as exc:
+        msg = f"{path.name}: not a readable PyTorch checkpoint ({type(exc).__name__}: {exc})"
+        raise WeightsError(msg) from exc
+    if not isinstance(checkpoint, dict):
+        msg = f"{path.name}: not an Ultralytics checkpoint"
+        raise WeightsError(msg)
+    model = checkpoint.get("ema") or checkpoint.get("model")
+    names = getattr(model, "names", None) or checkpoint.get("names") or {}
+    classes = [str(names[k]) for k in sorted(names)] if isinstance(names, dict) else [str(n) for n in names]
+    train_args = checkpoint.get("train_args") or {}
+    return {
+        "classes": classes,
+        "train_imgsz": train_args.get("imgsz") if isinstance(train_args, dict) else None,
+        "date": str(checkpoint.get("date") or "")[:10] or None,
+        "ultralytics": checkpoint.get("version"),
+        "sha256": _sha256(path),
+        "size_bytes": path.stat().st_size,
+    }
+
+
+def local_entry(path: Path) -> ModelEntry:
+    """An entry for a checkpoint outside the registry (``MODEL_PATH`` or ``--model path``).
+
+    Its name is the file name and its version ``local-<first 8 hex digits of the SHA-256>``,
+    so Panoramax tags (``detection_model``) tell two local files apart.
+
+    Raises:
+        WeightsError: If the file is missing or unreadable.
+        RegistryError: If the checkpoint names no class.
+    """
+    path = path.expanduser().resolve()
+    info = checkpoint_info(path)
+    classes = tuple(cast(list[str], info["classes"]))
+    if not classes:
+        msg = f"{path.name}: the checkpoint names no class"
+        raise RegistryError(msg)
+    name = re.sub(r"[^a-z0-9._-]+", "-", path.stem.lower()).strip("-._") or "local"
+    imgsz = info["train_imgsz"]
+    try:
+        return ModelEntry(
+            name=name,
+            family="local",
+            version=f"local-{str(info['sha256'])[:8]}",
+            file=path.name,
+            local_path=path,
+            sha256=str(info["sha256"]),
+            size_bytes=int(cast(int, info["size_bytes"])),
+            classes=classes,
+            train_imgsz=imgsz if isinstance(imgsz, int) and imgsz > 0 else 640,
+            min_memory_gib=0,
+            licence="unknown (local file)",
+        )
+    except ValueError as exc:
+        msg = f"{path.name}: {exc}"
+        raise RegistryError(msg) from exc
+
+
+def resolve_model(
+    settings: Settings, model: str | None = None, *, available_memory_gib: float | None = None
+) -> ModelEntry:
+    """The model to run, by precedence: ``model`` (CLI), ``MODEL_PATH``, ``MODEL_NAME``, automatic choice.
+
+    ``model`` and ``MODEL_NAME`` may also be checkpoint paths (``*.pt`` or containing ``/``).
+
+    Args:
+        settings: Model settings.
+        model: Registry name or checkpoint path given on the command line.
+        available_memory_gib: Free accelerator memory for automatic selection (``None`` on CPU).
+
+    Returns:
+        A registry entry, or a local entry for a checkpoint file.
+
+    Raises:
+        RegistryError: On an unknown name or an invalid registry.
+        WeightsError: If a checkpoint file is missing or unreadable.
+    """
+    choice = model or (str(settings.model_path) if settings.model_path else None) or settings.model_name
+    if choice and is_model_path(choice):
+        return local_entry(Path(choice))
+    registry = load_registry(settings.models_file)
+    return select_model(
+        registry, family=settings.model_family, available_memory_gib=available_memory_gib, name=choice
+    )

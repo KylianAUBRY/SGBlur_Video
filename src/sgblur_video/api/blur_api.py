@@ -37,10 +37,11 @@ from sgblur_video.api.metrics import render_metrics
 from sgblur_video.api.upload import UploadError, receive_file, safe_suffix
 from sgblur_video.config import Settings, get_settings
 from sgblur_video.core.probe import UnsupportedVideoError, probe
+from sgblur_video.core.trim import FrameRange
 from sgblur_video.jobs.runner import delete_job_files
 from sgblur_video.jobs.store import FINISHED, Job, JobStore
 from sgblur_video.jobs.worker import callback_allowed, job_status
-from sgblur_video.models import RegistryError, load_registry, select_model
+from sgblur_video.models import RegistryError, WeightsError, resolve_model
 
 logger = logging.getLogger(__name__)
 
@@ -52,13 +53,8 @@ _STREAM_CHUNK = 1 << 20
 
 def _model_summary(settings: Settings) -> dict[str, str]:
     try:
-        entry = select_model(
-            load_registry(settings.models_file),
-            family=settings.model_family,
-            available_memory_gib=None,
-            name=settings.model_name,
-        )
-    except RegistryError:
+        entry = resolve_model(settings)
+    except RegistryError, WeightsError:
         return {"name": "unknown", "version": "unknown"}
     return {"name": entry.name, "version": entry.version}
 
@@ -135,12 +131,25 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         keep: Annotated[int, Query(ge=0, le=1)] = 0,
         sync: Annotated[int, Query(ge=0, le=1)] = 0,
         frames: Annotated[int, Query(ge=0, le=1)] = 0,
+        debug: Annotated[int, Query(ge=0, le=1)] = 0,
         callback_url: Annotated[str | None, Query(max_length=2048)] = None,
+        start_frame: Annotated[int, Query(ge=0)] = 0,
+        end_frame: Annotated[int | None, Query(ge=1)] = None,
         accept: Annotated[str | None, Header()] = None,
     ) -> Response:
-        """Upload a video (multipart field ``video``) and queue it for blurring."""
+        """Upload a video (multipart field ``video``) and queue it for blurring.
+
+        With ``start_frame`` and/or ``end_frame`` only frames ``[start_frame, end_frame)`` are
+        processed and returned (the rest of the upload is deleted before processing). With
+        ``debug=1`` the job also writes an annotated video (``GET /jobs/{id}/debug``).
+        """
+        if end_frame is not None and end_frame <= start_frame:
+            raise ApiError(422, "invalid_parameter", "end_frame must be greater than start_frame.")
+        frame_range = FrameRange(start_frame, end_frame)
         if keep and not settings.keep_enabled:
             raise ApiError(422, "keep_unavailable", "keep=1 is not available on this instance.")
+        if debug and not settings.debug_videos:
+            raise ApiError(422, "debug_unavailable", "debug=1 is not available on this instance.")
         if callback_url and not callback_allowed(callback_url, settings):
             raise ApiError(422, "callback_not_allowed", "callback_url host is not allowed.")
         if sync and settings.sync_max_duration_s == 0:
@@ -166,7 +175,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             suffix = safe_suffix(received.suffix)
             input_path = (staging / "upload").rename(staging / f"input{suffix}")
             info = await run_in_threadpool(probe, input_path, settings)
-            if sync and info.duration_s > settings.sync_max_duration_s:
+            if info.frame_count is not None and start_frame >= info.frame_count:
+                raise ApiError(
+                    422,
+                    "invalid_parameter",
+                    f"start_frame {start_frame} is past the end of the video ({info.frame_count} frames).",
+                )
+            frames_total = frame_range.frames(info.frame_count)
+            duration_s = frames_total / info.fps if frames_total is not None and info.fps else info.duration_s
+            if sync and duration_s > settings.sync_max_duration_s:
                 raise ApiError(
                     422,
                     "sync_too_long",
@@ -182,16 +199,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             shutil.rmtree(staging, ignore_errors=True)
             raise
 
-        params = {
+        params: dict[str, Any] = {
             "keep": bool(keep),
             "frames": bool(frames),
+            "debug": bool(debug),
             "sync": bool(sync),
             "callback_url": callback_url,
         }
+        if not frame_range.is_whole:
+            params |= {"start_frame": start_frame, "end_frame": end_frame}
         destination = store.jobs_dir / job_id
         staging.rename(destination)
-        job = await run_in_threadpool(store.create, job_id, params, input_path.name, info.frame_count)
-        logger.info("job %s queued (%d bytes, %.1f s of video)", job_id, received.size, info.duration_s)
+        job = await run_in_threadpool(store.create, job_id, params, input_path.name, frames_total)
+        logger.info("job %s queued (%d bytes, %.1f s of video)", job_id, received.size, duration_s)
         if not sync:
             return JSONResponse(job_status(job), status_code=202, headers={"Location": f"/jobs/{job_id}"})
         return await _sync_response(job_id, accept)
@@ -242,6 +262,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         job = await run_in_threadpool(get_job, job_id)
         require_results(job)
         return FileResponse(store.paths(job).output, media_type="video/mp4", filename="blurred.mp4")
+
+    @app.get("/jobs/{job_id}/debug", tags=["jobs"], dependencies=auth, response_model=None)
+    async def get_debug_video(job_id: str) -> FileResponse:
+        """Download the annotated debug video (jobs created with ``debug=1``)."""
+        job = await run_in_threadpool(get_job, job_id)
+        require_results(job)
+        path = store.paths(job).debug
+        if not path.exists():
+            raise ApiError(404, "debug_not_requested", "This job was created without debug=1.")
+        return FileResponse(path, media_type="video/mp4", filename="blurred.debug.mp4")
 
     @app.get("/jobs/{job_id}/metadata", tags=["jobs"], dependencies=auth)
     async def get_metadata(job_id: str) -> JSONResponse:

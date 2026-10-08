@@ -38,3 +38,43 @@ models:
     min_memory_gib: 2
     licence: "Upstream statement: etalab-2.0 (Hugging Face card); checkpoint metadata: AGPL-3.0"
     source: https://gitlab.com/panoramax/server/sgblur
+
+  # Older SGBlur YOLO11 sizes, for comparisons (`--model`, `MODEL_NAME`): no `direction` class.
+  - name: yolo11n
+    family: yolo11
+    version: "0.1.0"
+    file: yolo11n_panoramax.pt
+    url: https://gitlab.com/panoramax/server/sgblur/-/raw/34c318b132fd890193d002d8609a8ffef8011b12/models/yolo11n_panoramax.pt
+    sha256: 698a70566938d25c3c1eaa49b89fc176fe2f3a20631a9a01fa56035613c7972a
+    size_bytes: 5979923
+    classes: [sign, plate, face]
+    train_imgsz: 2048
+    min_memory_gib: 1
+    licence: "Upstream statement: etalab-2.0 (Hugging Face card); checkpoint metadata: AGPL-3.0"
+    source: https://gitlab.com/panoramax/server/sgblur
+
+  - name: yolo11m
+    family: yolo11
+    version: "0.1.0"
+    file: yolo11m_panoramax.pt
+    url: https://gitlab.com/panoramax/server/sgblur/-/raw/34c318b132fd890193d002d8609a8ffef8011b12/models/yolo11m_panoramax.pt
+    sha256: ae318d739ce16c51e4136b98a04c8ad87e09a5b6feca4387a84a2e279b22dde9
+    size_bytes: 40886949
+    classes: [sign, plate, face]
+    train_imgsz: 2048
+    min_memory_gib: 3
+    licence: "Upstream statement: etalab-2.0 (Hugging Face card); checkpoint metadata: AGPL-3.0"
+    source: https://gitlab.com/panoramax/server/sgblur
+
+  - name: yolo11l
+    family: yolo11
+    version: "0.1.0"
+    file: yolo11l_panoramax.pt
+    url: https://gitlab.com/panoramax/server/sgblur/-/raw/34c318b132fd890193d002d8609a8ffef8011b12/models/yolo11l_panoramax.pt
+    sha256: a3205e4a92b3acdaa883c02e09dba439c48f6c5bc8c89aff44da7c2e79f140e7
+    size_bytes: 51562194
+    classes: [sign, plate, face]
+    train_imgsz: 2048
+    min_memory_gib: 4
+    licence: "Upstream statement: etalab-2.0 (Hugging Face card); checkpoint metadata: AGPL-3.0"
+    source: https://gitlab.com/panoramax/server/sgblur

@@ -8,6 +8,7 @@ from typer.testing import CliRunner
 
 from sgblur_video import __version__
 from sgblur_video.cli import app
+from sgblur_video.config import get_settings
 
 runner = CliRunner()
 
@@ -99,3 +100,27 @@ def test_invalid_video_is_reported_without_traceback(tmp_path: Path) -> None:
     assert result.exit_code == 1
     assert "not a readable video" in result.output
     assert result.exception is None or isinstance(result.exception, SystemExit)
+
+
+def test_models_inspect_and_model_path(
+    tmp_path: Path, repo_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import torch
+
+    monkeypatch.setenv("MODELS_FILE", str(repo_root / "models" / "registry.yaml"))
+    usable, unusable = tmp_path / "good.pt", tmp_path / "old.pt"
+    torch.save({"model": None, "names": {0: "sign", 1: "plate", 2: "face"}}, usable)
+    torch.save({"model": None, "names": {0: "0", 1: "1"}}, unusable)
+    result = runner.invoke(app, ["models", "inspect", str(usable)])
+    assert result.exit_code == 0, result.output
+    assert "usable:      yes" in result.output
+    assert "SGBlur-Video-good/local-" in result.output
+    assert "sha256: " in result.output  # registry entry to start from
+    result = runner.invoke(app, ["models", "inspect", str(unusable)])
+    assert result.exit_code == 1
+    assert "usable:      NO" in result.output
+    monkeypatch.setenv("MODEL_PATH", str(usable))
+    get_settings.cache_clear()  # settings are read once per process
+    result = runner.invoke(app, ["models", "list"])
+    assert "* MODEL_PATH: good.pt" in result.output
+    assert "* yolo26s" not in result.output

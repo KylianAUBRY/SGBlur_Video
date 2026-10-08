@@ -101,11 +101,20 @@ SGBlur keeps the smallest box instead; for blurring we prefer the union.
 
 ### 2.4 Tracking
 
-One Ultralytics tracker instance **per class group**, instantiated directly
-(`TRACKTRACK(args)`, `BOTSORT(args)`…, see
-[ADR-0002](../adr/0002-own-detection-loop-with-ultralytics-trackers.md)):
-separate trackers prevent a face track from being continued by a plate box,
-and cost little since the trackers run on a downscaled frame.
+One tracker instance **per class group**: separate trackers prevent a face
+track from being continued by a plate box, and cost little since the trackers
+run on a downscaled frame. The default is the optical-flow tracker
+(`core/flowtrack.py`, `tracker_type: flow`,
+[ADR-0003](../adr/0003-default-tracker.md)): each track's box is moved by the
+median Lucas-Kanade flow of a grid of points over the box and one box size
+around it (forward-backward checked), then tracks and detections are matched
+by centre distance (optimal assignment, distances wrapped around the 360°
+seam), with a gate of 2 box sizes for boxes up to 32 px and half a box size
+beyond. Every detection receives an id (new track if unmatched). The
+Ultralytics trackers are instantiated directly (`TRACKTRACK(args)`,
+`BOTSORT(args)`…, see
+[ADR-0002](../adr/0002-own-detection-loop-with-ultralytics-trackers.md)); the
+notes below apply to them.
 
 - **Tracking space**: frame scaled to `TRACK_WIDTH` (*1920* px wide); merged boxes are scaled into it; the same downscaled BGR frame is passed as `img` for global motion compensation (GMC `sparseOptFlow`, which needs every frame at a constant size).
 - Input: `ultralytics.engine.results.Boxes([[x1, y1, x2, y2, score, cls]], shape)`; never with an `xywhr` attribute.
@@ -119,6 +128,18 @@ and cost little since the trackers run on a downscaled frame.
 Each frame is appended to `detections.jsonl` as soon as it is processed
 (see [detections-format.md](detections-format.md)), with progress reported to
 the job store at most once per second.
+
+### 2.6 Overlapping CPU and accelerator work
+
+*Implemented after step 9.* Pass 1 runs in three stages connected by bounded
+queues: a thread decodes frames, converts them to BGR and prepares the detector
+inputs (360° padding, tile crops: `YoloDetector.prepare`) and the tracking
+image; the calling thread runs the inference passes (`YoloDetector.infer`) and
+the cross-pass merge; a thread runs the trackers and writes `detections.jsonl`
+in frame order. At most two prepared frames wait for inference (about 150 MB
+each at 8K). An error in a stage stops the pipeline and is re-raised. Output is
+identical to running the stages in sequence; 8K analysis is about 10 % faster
+on an Apple M4 Pro (3.55 → 3.9 frames/s).
 
 ## 3. Post-processing (no GPU)
 
@@ -140,8 +161,9 @@ For `blur` classes, a detection is blurred if **either** its own score is
 ≥ `CONF_BLUR` (*0.15*, orphans included), **or** it belongs to a track that
 contains at least one detection ≥ `CONF_BLUR`. Detections between
 `CONF_DETECT` and `CONF_BLUR` therefore extend confirmed tracks (useful when a
-face turns away) without blurring isolated low-score noise. Every blurred
-detection then goes through the steps below.
+face turns away) without blurring isolated low-score noise. A track split at a
+jump (§3.2) counts as separate tracks for this rule. Every blurred detection
+then goes through the steps below.
 
 ### 3.0b Offline linking ([ADR-0011](../adr/0011-offline-linking.md))
 
@@ -169,7 +191,14 @@ For two consecutive observations of a track at frames `i < j` with `j − i > 1`
 every frame `k` in between receives a box linearly interpolated between the two
 boxes (x coordinates unwrapped for equirect). Gaps longer than
 `MAX_INTERPOLATION_GAP_S` (*2 s*) are not interpolated (the object may have
-left the field); both ends still receive temporal padding.
+left the field); both ends still receive temporal padding. Neither are two
+observations whose centres are more than `MAX_INTERPOLATION_JUMP` (*20* box
+sizes, largest side of either box) apart: that is two objects tracked as one,
+and interpolating would sweep a blur across the frame between them (seen on 8K
+360° video: one face track jumping 3 000 px in 24 frames). The chain is split
+there; each part is selected (§3.0) and padded on its own, and its padded
+boxes are never merged with the boxes of the other part, so a low-score false
+positive is not blurred because a real face elsewhere shares its track.
 
 ### 3.3 Envelope smoothing
 
@@ -180,24 +209,32 @@ smoothing removes jitter without ever shrinking a blur area.
 ### 3.4 Temporal padding
 
 Before the first and after the last observation of every `blur` track,
-`BLUR_TEMPORAL_PADDING_FRAMES` (*15*, ≈ 0.5 s at 30 fps) extra frames are
-blurred. The padded box is extrapolated with the track's mean velocity over
-its first (or last) *5* observations and enlarged by `BLUR_PADDING_GROWTH`
-(*5 %* per frame) to absorb motion uncertainty. Orphans get the same padding
-with zero velocity.
+`BLUR_TEMPORAL_PADDING_FRAMES` (*12*, 0.4 s at 30 fps) extra frames are
+blurred. The padded box's **centre** follows the track's mean velocity over its
+first (or last) *5* observations, when at least *3* observations measure it
+and at most *0.5* box size per frame; its **size** stays that of the end box,
+enlarged by `BLUR_PADDING_GROWTH` (*5 %* per frame) to absorb motion
+uncertainty. Following the size change as well (an approaching car's plate
+grows quickly) made padded boxes several times larger than the object: a
+190 px plate padded with an 830 px box landing on the camera car's roof.
+Orphans get the same padding with zero velocity.
 
-Rationale for 15 frames: detectors typically pick a face up a few frames
+Rationale for 12 frames: detectors typically pick a face up a few frames
 after it becomes recognisable (small, blurred by motion, partially occluded),
-and lose it a few frames before it leaves. Half a second is the order of
-magnitude used for "transient exposure" in recent video anonymisation work
-(UrbanAnonymizer, ⅓ s). The privacy benchmark measures the exposure that
-remains at the start and end of ground-truth tracks ("transient exposures");
-this value will be revisited with its results on annotated clips.
+and lose it a few frames before it leaves. ⅓–½ s is the order of magnitude used
+for "transient exposure" in recent video anonymisation work (UrbanAnonymizer,
+⅓ s). 15 frames made padding about 80 % of the blurred area on 8K 360° street
+video; 12 is the shortest value for which the synthetic privacy scenario
+(a small fast face lost 12 frames before it leaves) shows no leak. The privacy
+benchmark measures the exposure that remains at the start and end of
+ground-truth tracks ("transient exposures"); this value will be revisited with
+its results on annotated clips.
 
 ### 3.5 Spatial margin and shapes
 
-Every box is enlarged by `BLUR_BOX_MARGIN` (*0.15* of its width/height on each
-side), then turned into a shape:
+Every box is enlarged by `BLUR_BOX_MARGIN` (*0.10* of its width/height on each
+side; 0.05 left a plate edge visible across the 360° seam in the synthetic
+scenario), then turned into a shape:
 
 - `face` → **ellipse circumscribing the enlarged box** (semi-axes = √2 × half-width/half-height). An ellipse inscribed in a box leaves 21.5 % of the box (the corners) unblurred; the circumscribed one contains the whole box.
 - `plate` → rectangle.

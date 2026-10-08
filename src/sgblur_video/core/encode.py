@@ -14,6 +14,7 @@ import av
 from av.video.codeccontext import VideoCodecContext
 
 from sgblur_video.config import Settings
+from sgblur_video.core.decode import LARGE_FRAME_PIXELS
 from sgblur_video.core.probe import VideoInfo
 from sgblur_video.privacy.blur import PLANAR_FORMATS, fallback_format
 
@@ -25,6 +26,13 @@ _FAMILY_ENCODERS = {
 }
 _FAMILY_TAGS = {"hevc": "hvc1", "h264": "avc1"}
 _JPEG_RANGE = 2
+
+#: x265 settings above 4K. Every frame x265 holds ahead (lookahead, B-frames, references) costs
+#: about 300 MB on 8K 10-bit video: decoding and encoding 70 frames of 8K 10-bit in Docker
+#: peaked above 7 GB with the medium preset defaults (lookahead 20, 4 B-frames, 3 references),
+#: at 5.95 GB with lookahead 5 and 2 B-frames, and at 4.4 GB with these settings, as fast.
+#: frame-threads=1, pools=4 and MALLOC_ARENA_MAX=2 saved nothing.
+LARGE_FRAME_X265 = ("rc-lookahead=3", "bframes=1", "ref=1")
 
 
 @dataclass(frozen=True)
@@ -73,7 +81,7 @@ def _encoder_pix_fmt(codec: str, source_fmt: str) -> str:
     return "yuv420p"
 
 
-def _options(codec: str, bit_rate: int | None, depth: int) -> dict[str, str]:
+def _options(codec: str, bit_rate: int | None, depth: int, pixels: int = 0) -> dict[str, str]:
     if codec.endswith("_videotoolbox"):
         options = {"allow_sw": "0", "realtime": "0"}
         if not bit_rate:
@@ -86,6 +94,8 @@ def _options(codec: str, bit_rate: int | None, depth: int) -> dict[str, str]:
     options = {"preset": "medium", "crf": "20"}
     if codec == "libx265":
         params = ["log-level=error"]
+        if pixels > LARGE_FRAME_PIXELS:
+            params += LARGE_FRAME_X265
         if bit_rate:
             params += [f"vbv-maxrate={bit_rate * 3 // 2000}", f"vbv-bufsize={bit_rate * 2 // 1000}"]
         options["x265-params"] = ":".join(params)
@@ -94,8 +104,8 @@ def _options(codec: str, bit_rate: int | None, depth: int) -> dict[str, str]:
     return options
 
 
-def _can_open(codec: str, info: VideoInfo, pix_fmt: str) -> bool:
-    """Whether the encoder exists and accepts this frame size and format here."""
+def _can_open(codec: str, info: VideoInfo, pix_fmt: str, options: dict[str, str]) -> bool:
+    """Whether the encoder exists and accepts this frame size and format here (with ``options``)."""
     if codec not in av.codecs_available:
         return False
     try:
@@ -103,6 +113,7 @@ def _can_open(codec: str, info: VideoInfo, pix_fmt: str) -> bool:
         context.width, context.height, context.pix_fmt = info.width, info.height, pix_fmt
         context.time_base = info.time_base
         context.framerate = info.avg_frame_rate
+        context.options = options
         context.open()
         del context  # released by garbage collection; PyAV has no explicit close
     except av.FFmpegError, ValueError, OSError:
@@ -135,13 +146,14 @@ def choose_encoder(
     color_range = _JPEG_RANGE if source_fmt.startswith("yuvj") else info.color.get("color_range", 1) or 1
     for codec in candidates:
         pix_fmt = _encoder_pix_fmt(codec, source_fmt) if codec in av.codecs_available else "yuv420p"
-        if _can_open(codec, info, pix_fmt):
+        options = _options(codec, bit_rate, _bit_depth(source_fmt), info.width * info.height)
+        if _can_open(codec, info, pix_fmt, options):
             choice = EncoderChoice(
                 codec=codec,
                 family=family,
                 pix_fmt=pix_fmt,
                 bit_rate=bit_rate,
-                options=_options(codec, bit_rate, _bit_depth(source_fmt)),
+                options=options,
                 codec_tag=_FAMILY_TAGS[family],
                 color_range=color_range,
             )

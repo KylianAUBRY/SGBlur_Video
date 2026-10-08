@@ -80,5 +80,5 @@ def test_benchmark_trackers_and_speed(env: Path, tmp_path: Path, repo_root: Path
     assert rows[1]["tracking_fps"] > 0  # tracking replayed on the cached detections
 
     output = _invoke(["benchmark", "speed", str(env), "--frames", "2", "--profile", "fast"])
-    assert "| yolo26s | cpu | fast | 1 |" in output
+    assert "| yolo26s/0.1.0 | cpu | fast | 1 |" in output
     assert f"{WIDTH}x{HEIGHT} flat h264" in output

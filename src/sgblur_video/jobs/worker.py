@@ -18,6 +18,7 @@ import logging
 import multiprocessing
 import multiprocessing.context
 import shutil
+import signal
 import threading
 import time
 from datetime import timedelta
@@ -28,7 +29,7 @@ from urllib.parse import urlparse
 import httpx
 
 from sgblur_video.config import Settings
-from sgblur_video.jobs.runner import delete_job_files, run_job
+from sgblur_video.jobs.runner import KILLED_MESSAGE, delete_job_files, run_job
 from sgblur_video.jobs.store import Job, JobStore
 from sgblur_video.privacy.keep import purge_expired
 
@@ -59,7 +60,8 @@ def job_status(job: Job) -> dict[str, Any]:
         "finished_at": job.finished_at.isoformat(timespec="seconds") if job.finished_at else None,
         "expires_at": job.expires_at.isoformat(timespec="seconds") if job.expires_at else None,
         "error": {"code": job.error_code, "message": job.error_message} if job.error_code else None,
-        "links": {"self": base, "video": f"{base}/video", "metadata": f"{base}/metadata"},
+        "links": {"self": base, "video": f"{base}/video", "metadata": f"{base}/metadata"}
+        | ({"debug": f"{base}/debug"} if job.params.get("debug") else {}),
     }
 
 
@@ -144,8 +146,13 @@ class Worker:
         current = self.store.get(job.id)
         if current is not None and current.status == "running":
             # The child died without recording an outcome (crash, out of memory…).
+            killed = process.exitcode == -signal.SIGKILL
+            logger.warning("job %s: process ended with exit code %s", job.id, process.exitcode)
             self.store.finish(
-                job.id, "failed", error_code="worker_crash", error_message="Processing stopped."
+                job.id,
+                "failed",
+                error_code="worker_crash",
+                error_message=KILLED_MESSAGE if killed else "Processing stopped unexpectedly.",
             )
         if current is None or current.status in {"failed", "cancelled"}:
             delete_job_files(self.store.paths(job))

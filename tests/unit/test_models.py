@@ -103,3 +103,61 @@ def test_policy_warnings() -> None:
     assert any("'direction'" in warning for warning in warnings)
     assert any("'bicycle'" in warning for warning in warnings)
     assert any("'sign'" in warning for warning in warnings)
+
+
+def _checkpoint(path: Path, names: dict[int, str]) -> Path:
+    import torch
+
+    torch.save(
+        {"model": None, "names": names, "train_args": {"imgsz": 1024}, "date": "2026-01-02T00:00"}, path
+    )
+    return path
+
+
+def test_local_checkpoint_entry(tmp_path: Path) -> None:
+    from sgblur_video.models import ensure_weights, local_entry
+
+    path = _checkpoint(tmp_path / "My Model v2.pt", {0: "face", 1: "plate", 2: "sign"})
+    entry = local_entry(path)
+    assert entry.name == "my-model-v2"
+    assert entry.version == f"local-{entry.sha256[:8]}"
+    assert entry.classes == ("face", "plate", "sign")
+    assert entry.train_imgsz == 1024
+    assert entry.local_path == path.resolve()
+    assert ensure_weights(entry, tmp_path / "unused") == path.resolve()  # used in place, never downloaded
+
+
+def test_model_precedence(tmp_path: Path, repo_root: Path) -> None:
+    from sgblur_video.config import Settings
+    from sgblur_video.models import WeightsError, is_model_path, resolve_model
+
+    assert is_model_path("x.pt")
+    assert is_model_path("models/x")
+    assert not is_model_path("yolo11l")
+    local = _checkpoint(tmp_path / "local.pt", {0: "face", 1: "plate"})
+    registry = repo_root / "models" / "registry.yaml"
+    base = Settings(models_file=registry)
+    assert resolve_model(base).name == "yolo26s"  # automatic choice
+    assert resolve_model(Settings(models_file=registry, model_name="yolo11l")).name == "yolo11l"
+    with_path = Settings(models_file=registry, model_name="yolo11l", model_path=local)
+    assert resolve_model(with_path).name == "local"  # MODEL_PATH beats MODEL_NAME
+    assert resolve_model(with_path, "yolo11n").name == "yolo11n"  # --model beats both
+    assert resolve_model(base, str(local)).family == "local"  # --model accepts a path
+    with pytest.raises(WeightsError, match="not found"):
+        resolve_model(base, str(tmp_path / "missing.pt"))
+
+
+def test_model_path_setting(monkeypatch: pytest.MonkeyPatch) -> None:
+    from sgblur_video.config import Settings
+
+    monkeypatch.setenv("MODEL_PATH", "~/models/x.pt")
+    assert Settings().model_path == Path.home() / "models" / "x.pt"
+    monkeypatch.setenv("MODEL_PATH", "")
+    assert Settings().model_path is None
+
+
+def test_registry_entries_need_a_url() -> None:
+    entry = _entry("a")
+    del entry["url"]
+    with pytest.raises(ValueError, match="needs a url"):
+        ModelRegistry.model_validate({"schema_version": 1, "models": [entry]})

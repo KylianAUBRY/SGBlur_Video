@@ -18,17 +18,19 @@ privacy note must not be changed without running the privacy benchmark
 | `API_NAME` | string | `SGBlur-Video` | `service_name` in metadata and prefix of `detection_model` tag values. Never change it after deployment: Panoramax removes previous detection tags by this prefix. | — |
 | `API_TOKEN` | secret | empty | If set, required as a bearer token on every route except `/`, `/ui` and `/metrics`. | — |
 | `WEB_UI` | boolean | `true` | Serve a web page at `/ui` to upload a video and download the blurred result. | — |
+| `DEBUG_VIDEOS` | boolean | `true` | Accept `debug=1` jobs: an extra video (at most 1920 px wide) outlining every blurred region and sign with its class. | Each debug job also encodes a second video. |
 
 ## Model and device
 
 | Variable | Type | Default | Description | Privacy |
 |---|---|---|---|---|
-| `MODEL_NAME` | string | empty | Registry entry to use. Empty: the largest model of `MODEL_FAMILY` that fits the accelerator memory. | Smaller models miss more objects. |
+| `MODEL_NAME` | string | empty | Registry entry to use (`sgblur-video models list`). Empty: the largest model of `MODEL_FAMILY` that fits the accelerator memory. | Smaller models miss more objects. |
+| `MODEL_PATH` | path | empty | Local checkpoint (`.pt`) to use instead of the registry, to try any model: classes are read from the file and checked against `CLASS_POLICY`. Overrides `MODEL_NAME`. | Check its blur results before using it for real. |
 | `MODEL_FAMILY` | string | `yolo26` | Model family preferred by automatic selection. | — |
 | `MODELS_FILE` | path | `models/registry.yaml` | Model registry (name, version, URL, SHA-256, expected classes). | — |
 | `MODELS_DIR` | path | `~/.cache/sgblur-video/models` | Where weights are downloaded and verified (`/models` in Docker). | — |
 | `DEVICE` | string | `auto` | `auto` picks CUDA, then MPS (Apple Silicon), then CPU. | — |
-| `HALF` | `auto` \| boolean | `auto` | FP16 inference (Ultralytics `quantize=16`). `auto` enables it on CUDA only. | — |
+| `HALF` | `auto` \| boolean | `auto` | FP16 inference (Ultralytics `quantize=16`). `auto`: on CUDA and Apple GPUs (MPS). | — |
 | `CLASS_POLICY` | JSON object | `{"face": "blur", "plate": "blur", "sign": "annotate", "direction": "annotate"}` | JSON object mapping class names to `blur` or `annotate`. A model lacking a `blur` class is refused at start-up. | Removing a `blur` class leaves it visible. |
 
 ## Detection
@@ -48,7 +50,7 @@ privacy note must not be changed without running the privacy benchmark
 
 | Variable | Type | Default | Description | Privacy |
 |---|---|---|---|---|
-| `TRACKER_CONFIG` | path | `configs/trackers/tracktrack-recall.yaml` | Ultralytics tracker YAML (plus the `track_buffer_s` extension). | Gap filling relies on track continuity. |
+| `TRACKER_CONFIG` | path | `configs/trackers/flow.yaml` | Tracker YAML: the optical-flow tracker (`flow.yaml`) or an Ultralytics tracker (plus the `track_buffer_s` extension). | Gap filling relies on track continuity. |
 | `TRACK_WIDTH` | integer | `1920` | Width of the frame used for tracking and camera-motion compensation. | — |
 
 ## Post-processing and blur
@@ -57,10 +59,11 @@ privacy note must not be changed without running the privacy benchmark
 |---|---|---|---|---|
 | `BLUR_METHOD` | `pixelate_blur` \| `gaussian_strong` \| `solid` | `pixelate_blur` | Irreversible blur operation: `pixelate_blur`, `gaussian_strong` or `solid`. | `gaussian_strong` is the weakest option. |
 | `PIXELATE_CELLS` | integer | `6` | Maximum number of mosaic cells on the long side of a blurred shape. | More cells keep more identity information. |
-| `BLUR_BOX_MARGIN` | number | `0.15` | Enlargement of each box on each side, as a fraction of its width/height. | Lower values may leave edges visible. |
-| `BLUR_TEMPORAL_PADDING_FRAMES` | integer | `15` | Frames blurred before the first and after the last detection of a track or orphan. | Lower values expose objects at track ends. |
+| `BLUR_BOX_MARGIN` | number | `0.1` | Enlargement of each box on each side, as a fraction of its width/height. | Lower values may leave edges visible. |
+| `BLUR_TEMPORAL_PADDING_FRAMES` | integer | `12` | Frames blurred before the first and after the last detection of a track or orphan. | Lower values expose objects at track ends. |
 | `BLUR_PADDING_GROWTH` | number | `0.05` | Per-frame growth of padded boxes, to absorb motion uncertainty. | Lower values may miss moving objects. |
 | `MAX_INTERPOLATION_GAP_S` | number | `2.0` | Longest gap inside a track that is filled by interpolation, in seconds. | Lower values leave gaps unblurred. |
+| `MAX_INTERPOLATION_JUMP` | number | `20.0` | Largest move, in box sizes, between two detections of a track that is filled by interpolation (larger jumps are two objects tracked as one). | Lower values leave fast objects unblurred between detections; higher values sweep blur across the frame. |
 | `LINK_MAX_GAP_S` | number | `1.0` | Longest interruption, in seconds, across which detections of one object are linked offline (flickering small objects). | Lower values break objects into more pieces (more padding, not less blur). |
 | `LINK_MAX_DISTANCE` | number | `1.0` | Maximum distance, in box sizes, between where an object was heading and where it reappears. | Lower values break objects into more pieces. |
 | `SIGN_MIN_TRACK_LENGTH` | integer | `5` | Minimum number of detections for a sign track to produce an annotation. | — |

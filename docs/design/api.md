@@ -10,7 +10,7 @@ Two applications, as in SGBlur:
 
 | App | Default port | Routes |
 |---|---|---|
-| Blur API | 8000 | `GET /`, `POST /blur/`, `GET /jobs/{job_id}`, `GET /jobs/{job_id}/video`, `GET /jobs/{job_id}/metadata`, `GET /jobs/{job_id}/frames`, `GET /jobs/{job_id}/frames/{n}.jpg`, `DELETE /jobs/{job_id}`, `GET /metrics` |
+| Blur API | 8000 | `GET /`, `POST /blur/`, `GET /jobs/{job_id}`, `GET /jobs/{job_id}/video`, `GET /jobs/{job_id}/debug`, `GET /jobs/{job_id}/metadata`, `GET /jobs/{job_id}/frames`, `GET /jobs/{job_id}/frames/{n}.jpg`, `DELETE /jobs/{job_id}`, `GET /metrics` |
 | Detect API | 8001 | `GET /`, `POST /detect/`, `GET /metrics` |
 
 ## Conventions
@@ -18,7 +18,7 @@ Two applications, as in SGBlur:
 - **Uploads** are `multipart/form-data` with the file in the field `video` (SGBlur uses `picture` for images). Files are streamed to disk in chunks; the size limit is enforced while streaming.
 - **Errors** follow FastAPI's shape with an added machine-readable code: `{"detail": "human message", "code": "video_too_long"}`.
 - **Job ids** are random UUID4 values; knowing the id is what grants access to a job (capability URL). An optional static bearer token (`API_TOKEN`) can be required on every route except `GET /` and `GET /metrics`.
-- **No public debug switch**: unlike SGBlur's `debug` parameter, annotated debug videos are only available from the CLI.
+- **Debug video beside the result, never in it**: unlike SGBlur's `debug` parameter, which draws on the returned picture, `debug=1` writes a *separate* annotated video, drawn on the already blurred frames (it shows nothing the result does not). `DEBUG_VIDEOS=false` refuses it.
 
 ## `POST /blur/`
 
@@ -28,6 +28,7 @@ Two applications, as in SGBlur:
 | `keep` | query | `0` \| `1` | `0` | Keep encrypted originals of low-confidence blurred regions for `KEEP_TTL_HOURS` (Panoramax `PICTURE_PROCESS_KEEP_UNBLURRED_PARTS`). `422 keep_unavailable` if `KEEP_SECRET_KEY` is not configured. |
 | `sync` | query | `0` \| `1` | `0` | Wait and return the result in the response. Only for videos ≤ `SYNC_MAX_DURATION_S`, otherwise `422 sync_too_long`. |
 | `frames` | query | `0` \| `1` | `0` | Also produce one blurred JPEG per sign annotation (best frame). |
+| `debug` | query | `0` \| `1` | `0` | Also produce an annotated debug video (`GET /jobs/{job_id}/debug`). `422 debug_unavailable` when `DEBUG_VIDEOS` is false. |
 | `callback_url` | query | URL | none | Called with `POST` and the job status JSON when the job ends. Host must match `CALLBACK_ALLOWED_HOSTS` (empty = callbacks disabled → `422 callback_not_allowed`). |
 
 Responses:
@@ -70,6 +71,13 @@ Responses:
 
 `200 video/mp4` (with `Content-Disposition: attachment; filename="blurred.mp4"`
 and HTTP range support), `409 job_not_ready`, `404`, `410`.
+
+## `GET /jobs/{job_id}/debug`
+
+Only when the job was created with `debug=1` (the status then has a `links.debug`
+entry), else `404 debug_not_requested`. `200 video/mp4`: the blurred video in
+H.264, at most 1920 px wide, without audio, with every blurred region and sign
+outlined: colour = class (magenta face, yellow plate, blue sign, cyan direction sign); solid outline = detected on that frame, labelled with class, score and track number; dashed outline, without label = blurred without a detection on that frame, from the object's track (interpolated between two detections, or padded before or after them).
 
 ## `GET /jobs/{job_id}/metadata` {#metadata}
 
@@ -114,7 +122,7 @@ Same structure as SGBlur's `metadata` part, with documented extensions:
     "dropped_streams": [],
     "processing_s": 1212.5,
     "model": "yolo26s/0.1.0",
-    "tracker": "tracktrack-recall"
+    "tracker": "flow"
   }
 }
 ```
@@ -163,7 +171,7 @@ returns `204`.
 
 ```json
 {"name": "SGBlur-Video", "version": "0.1.0", "status": "ok",
- "model": {"name": "yolo26s", "version": "0.1.0"}, "tracker": "tracktrack-recall",
+ "model": {"name": "yolo26s", "version": "0.1.0"}, "tracker": "flow",
  "device": "auto", "queue": {"queued": 0, "running": 1}}
 ```
 

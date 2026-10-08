@@ -46,7 +46,7 @@ paths:
                 version: 0.1.0
                 status: ok
                 model: {name: yolo26s, version: 0.1.0}
-                tracker: tracktrack-recall
+                tracker: flow
                 device: auto
                 queue: {queued: 0, running: 1}
   /ui:
@@ -81,10 +81,29 @@ paths:
           in: query
           description: Also produce one blurred JPEG per sign annotation.
           schema: {type: integer, enum: [0, 1], default: 0}
+        - name: debug
+          in: query
+          description: |
+            Also produce an annotated debug video (`GET /jobs/{job_id}/debug`): the blurred video,
+            at most 1920 px wide, with every blurred region and sign outlined in the colour of its
+            class. `422 debug_unavailable` when `DEBUG_VIDEOS` is false.
+          schema: {type: integer, enum: [0, 1], default: 0}
         - name: callback_url
           in: query
           description: URL called with POST and the job status when the job ends. Host must be allow-listed.
           schema: {type: string, format: uri}
+        - name: start_frame
+          in: query
+          description: |
+            First frame to process (0-based). With `end_frame`, only frames `[start_frame, end_frame)`
+            are processed and returned, with audio and telemetry of the same span; timestamps and
+            frame numbers of the results count from `start_frame`. The rest of the upload is deleted
+            before processing. Past the last frame → `422 invalid_parameter`.
+          schema: {type: integer, minimum: 0, default: 0}
+        - name: end_frame
+          in: query
+          description: Frame after the last one to process (exclusive; default the end of the video).
+          schema: {type: integer, minimum: 1}
         - name: Accept
           in: header
           description: Send `multipart/form-data` with `sync=1` to get metadata and video in one multipart response.
@@ -217,6 +236,32 @@ paths:
         "404": {$ref: "#/components/responses/NotFound"}
         "409": {$ref: "#/components/responses/NotReady"}
         "410": {$ref: "#/components/responses/Expired"}
+  /jobs/{job_id}/debug:
+    parameters:
+      - $ref: "#/components/parameters/JobId"
+    get:
+      tags: [jobs]
+      summary: Download the annotated debug video (jobs created with debug=1)
+      operationId: getJobDebugVideo
+      description: |
+        The blurred video (H.264, at most 1920 px wide, no audio) with every blurred region and sign
+        outlined. Colour = class (face magenta, plate yellow, sign blue, direction sign cyan); solid
+        outline = detected on that frame (label: class, score, track number); dashed outline =
+        blurred without a detection on that frame (`interpolated` or `padded` from the track).
+      responses:
+        "200":
+          description: Debug video.
+          content:
+            video/mp4:
+              schema: {type: string, contentMediaType: video/mp4}
+        "404":
+          description: Unknown job, or job created without `debug=1` (`debug_not_requested`).
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
+              example: {detail: This job was created without debug=1., code: debug_not_requested}
+        "409": {$ref: "#/components/responses/NotReady"}
+        "410": {$ref: "#/components/responses/Expired"}
   /jobs/{job_id}/metadata:
     parameters:
       - $ref: "#/components/parameters/JobId"
@@ -265,7 +310,7 @@ paths:
                   dropped_streams: []
                   processing_s: 1212.5
                   model: yolo26s/0.1.0
-                  tracker: tracktrack-recall
+                  tracker: flow
         "404": {$ref: "#/components/responses/NotFound"}
         "409": {$ref: "#/components/responses/NotReady"}
         "410": {$ref: "#/components/responses/Expired"}
@@ -412,6 +457,8 @@ components:
               value: {detail: sync=1 is limited to videos up to 30 s., code: sync_too_long}
             keep:
               value: {detail: keep=1 is not available on this instance., code: keep_unavailable}
+            debug:
+              value: {detail: debug=1 is not available on this instance., code: debug_unavailable}
             callback:
               value: {detail: callback_url host is not allowed., code: callback_not_allowed}
     QueueFull:
@@ -449,8 +496,9 @@ components:
         code:
           type: string
           enum: [file_too_large, unsupported_media_type, unsupported_projection, video_too_long, sync_too_long,
-                 invalid_parameter, keep_unavailable, callback_not_allowed, queue_full, detector_busy,
-                 job_not_found, job_not_ready, job_failed, job_expired, frames_not_requested,
+                 invalid_parameter, keep_unavailable, debug_unavailable, callback_not_allowed, queue_full,
+                 detector_busy, job_not_found, job_not_ready, job_failed, job_expired, frames_not_requested,
+                 debug_not_requested,
                  frame_not_found, unauthorized]
     Health:
       type: object
@@ -502,6 +550,7 @@ components:
             self: {type: string}
             video: {type: string}
             metadata: {type: string}
+            debug: {type: string, description: Present for jobs created with `debug=1`.}
     SemanticTag:
       type: object
       required: [key, value]

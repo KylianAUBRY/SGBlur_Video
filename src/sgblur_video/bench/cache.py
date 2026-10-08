@@ -164,7 +164,12 @@ def retrack(
     tracker_config = load_tracker_config(settings.tracker_config, info.fps)
     factor = min(1.0, settings.track_width / info.width)
     track_size = (max(2, round(info.width * factor)), max(2, round(info.height * factor)))
-    trackers = GroupTrackers(tracker_config, class_groups(settings.class_policy), track_size)
+    trackers = GroupTrackers(
+        tracker_config,
+        class_groups(settings.class_policy),
+        track_size,
+        wrap=info.projection == "equirectangular",
+    )
     header = base.header.model_copy(
         update={
             "tracking": {

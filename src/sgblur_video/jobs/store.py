@@ -69,6 +69,11 @@ class JobPaths:
         return self.root / self.input_name
 
     @property
+    def range_input(self) -> Path:
+        """The requested frame range of the upload, cut before processing (deleted like the input)."""
+        return self.root / "input-range.mp4"
+
+    @property
     def detections(self) -> Path:
         """``detections.jsonl``."""
         return self.root / "detections.jsonl"
@@ -77,6 +82,11 @@ class JobPaths:
     def output(self) -> Path:
         """Blurred video."""
         return self.root / "output.mp4"
+
+    @property
+    def debug(self) -> Path:
+        """Annotated debug video (jobs created with ``debug=1``)."""
+        return self.root / "debug.mp4"
 
     @property
     def metadata(self) -> Path:

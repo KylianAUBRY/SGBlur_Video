@@ -37,8 +37,8 @@ folder shown as `~`). Run commands from the repository root, or set
 
 `--frames-dir` writes the best view of each sign as a blurred JPEG (with EXIF
 date and GPS when known) and `frames.json`. `--debug` writes an annotated video
-(boxes, classes, track ids, interpolated and padded boxes in other colours). It
-is **only** available from the CLI, never through the HTTP API.
+(at most 1920 px wide): colour = class (magenta face, yellow plate, blue sign, cyan direction sign); solid outline = detected on that frame, labelled with class, score and track number; dashed outline, without label = blurred without a detection on that frame, from the object's track (interpolated between two detections, or padded before or after them). The HTTP API and the web page produce the same
+video with `debug=1`.
 
 ## Service
 

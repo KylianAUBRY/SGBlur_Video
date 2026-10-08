@@ -118,6 +118,72 @@ def test_padding_extrapolates_motion_and_grows() -> None:
     assert not plan.shapes(35)
 
 
+def test_padding_ignores_unreliable_motion() -> None:
+    # Two detections 30 px apart (an intermittent plate, or two plates linked together): padding
+    # used to follow that "motion" 300 px away over 10 frames; it stays on the boxes.
+    frames = {
+        20: [("plate", 0.9, (400, 500, 440, 520), None)],
+        21: [("plate", 0.9, (430, 500, 470, 520), None)],
+    }
+    plan = _plan(frames, blur_temporal_padding_frames=10)
+    assert _covered(plan, 31, (430, 500, 470, 520))
+    assert all(350 < shape.box[0] < 450 for i in (10, 31) for shape in plan.shapes(i))
+
+
+def test_padding_speed_is_capped() -> None:
+    # Boxes jumping 3 box sizes per frame are followed at most 0.5 box size (10 px) per frame.
+    frames = {20 + i: [("plate", 0.9, (100 + 60 * i, 100, 120 + 60 * i, 120), "plate:1")] for i in range(5)}
+    plan = _plan(frames, blur_temporal_padding_frames=10)
+    last = (340, 100, 360, 120)
+    shape = plan.shapes(34)[0]
+    assert shape.source == "padded"
+    assert shape.box[0] <= last[0] + 10 * 10
+    assert _covered(plan, 25, (last[0] + 10, 100, last[2] + 10, 120))
+
+
+def test_padding_does_not_follow_the_growth_of_the_box() -> None:
+    # An approaching plate whose box grows by 10 px per frame: following that growth made padded
+    # boxes several times larger than the plate (190 px plate, 830 px padded box on 8K video).
+    frames = {i: [("plate", 0.9, (500, 500, 540 + 10 * (i - 20), 520), "plate:1")] for i in range(20, 25)}
+    plan = _plan(frames, blur_temporal_padding_frames=10, blur_padding_growth=0.0)
+    shape = plan.shapes(34)[0]
+    assert shape.source == "padded"
+    assert shape.box[2] - shape.box[0] == pytest.approx(80)
+
+
+def test_jump_between_detections_is_not_interpolated() -> None:
+    # 50 box sizes apart: two faces tracked as one, not one face crossing the frame.
+    frames = {0: [("face", 0.9, (0, 0, 10, 10), "face:1")], 10: [("face", 0.9, (500, 0, 510, 10), "face:1")]}
+    assert not _plan(frames).shapes(5)
+    assert _plan(frames, max_interpolation_jump=100).shapes(5)[0].source == "interpolated"
+
+
+def test_each_part_of_a_jumping_chain_must_reach_the_blur_threshold() -> None:
+    # A tracker linked a real face (0.6) and a low-score false positive far away (0.11): only the
+    # face is blurred.
+    frames = {
+        0: [("face", 0.6, (0, 0, 10, 10), "face:1")],
+        5: [("face", 0.11, (500, 500, 510, 510), "face:1")],
+    }
+    plan = _plan(frames, blur_temporal_padding_frames=2)
+    assert plan.shapes(0)
+    assert not plan.shapes(5)
+    assert all(shape.box[0] < 100 for i in range(10) for shape in plan.shapes(i))
+    assert plan.stats["parts_below_threshold"] == 1
+
+
+def test_padding_is_not_merged_across_a_jump() -> None:
+    # The padding after the first box must not be merged with the second box into one large box.
+    frames = {
+        0: [("plate", 0.9, (0, 0, 10, 10), "plate:1")],
+        3: [("plate", 0.9, (500, 0, 510, 10), "plate:1")],
+    }
+    plan = _plan(frames, blur_temporal_padding_frames=5)
+    shapes = plan.shapes(3)
+    assert len(shapes) == 2
+    assert all(shape.box[2] - shape.box[0] < 20 for shape in shapes)
+
+
 def test_padding_is_clipped_to_the_video() -> None:
     frames = {0: [("face", 0.9, (0, 0, 10, 10), "face:1")]}
     plan = _plan(frames, count=3, blur_temporal_padding_frames=15)

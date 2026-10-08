@@ -34,6 +34,7 @@ curl -s http://localhost:8000/jobs/3f0d…
 curl -s -o blurred.mp4 http://localhost:8000/jobs/3f0d…/video
 curl -s http://localhost:8000/jobs/3f0d…/metadata      # Panoramax annotations of traffic signs
 curl -s http://localhost:8000/jobs/3f0d…/frames        # best-frame pictures (frames=1)
+curl -s -o debug.mp4 http://localhost:8000/jobs/3f0d…/debug   # outlined debug video (debug=1)
 
 # 4. Delete everything now (otherwise results expire after RESULT_TTL_MINUTES)
 curl -s -X DELETE http://localhost:8000/jobs/3f0d…
@@ -59,8 +60,10 @@ Results of synchronous requests are deleted as soon as they are sent.
 |---|---|
 | `keep=1` | Keep encrypted originals of low-confidence blurred regions for `KEEP_TTL_HOURS` (needs `KEEP_SECRET_KEY`). |
 | `frames=1` | Also produce one blurred JPEG per sign best view. |
+| `debug=1` | Also produce a debug video at `/jobs/{id}/debug` (`links.debug` in the status): colour = class (magenta face, yellow plate, blue sign, cyan direction sign); solid outline = detected on that frame, labelled with class, score and track number; dashed outline, without label = blurred without a detection on that frame, from the object's track (interpolated between two detections, or padded before or after them). H.264 at most 1920 px wide, so it plays in every browser. `DEBUG_VIDEOS=false` disables it. |
 | `sync=1` | Wait for the result (short videos only). |
 | `callback_url=…` | `POST` the final job status there (host must be in `CALLBACK_ALLOWED_HOSTS`). |
+| `start_frame=N`, `end_frame=M` | Only process frames `N` to `M - 1` (0-based; either can be omitted). The rest of the upload is deleted before processing; the result holds only those frames, with the audio and telemetry of the same span, and its times count from frame `N` (`video.frame_range` in the metadata). A GoPro telemetry packet covers about 1 s, so a very short range can report a slightly longer duration than its video. |
 
 ## Errors
 
@@ -71,12 +74,12 @@ parameters (e.g. `keep=2` → `422 invalid_parameter`):
 |---|---|
 | 400 | `invalid_parameter` (malformed multipart body) |
 | 401 | `unauthorized` (when `API_TOKEN` is set) |
-| 404 | `job_not_found`, `frames_not_requested`, `frame_not_found` |
+| 404 | `job_not_found`, `frames_not_requested`, `debug_not_requested`, `frame_not_found` |
 | 409 | `job_not_ready`, `job_failed` |
 | 410 | `job_expired` |
 | 413 | `file_too_large` |
 | 415 | `unsupported_media_type`, `unsupported_projection` |
-| 422 | `invalid_parameter`, `video_too_long`, `sync_too_long`, `keep_unavailable`, `callback_not_allowed` |
+| 422 | `invalid_parameter`, `video_too_long`, `sync_too_long`, `keep_unavailable`, `debug_unavailable`, `callback_not_allowed` |
 | 500 | `processing_error`, `worker_crash` (only with `sync=1`, when the job fails) |
 | 503 | `queue_full`, `detector_busy` (with `Retry-After`) |
 

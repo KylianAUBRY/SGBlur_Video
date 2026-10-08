@@ -11,16 +11,19 @@ import shutil
 import time
 import uuid
 from collections.abc import Callable
+from dataclasses import replace
 from datetime import timedelta
 from pathlib import Path
 
 import httpx
 
 from sgblur_video.config import Settings
-from sgblur_video.core.analyze import analyze
 from sgblur_video.core.detections_io import DetectionsFormatError
-from sgblur_video.core.pipeline import load_detections, load_model, render_detections, write_metadata
+from sgblur_video.core.pipeline import load_detections, render_detections, write_metadata
 from sgblur_video.core.probe import UnsupportedVideoError, VideoInfo, probe
+from sgblur_video.core.render import RenderError
+from sgblur_video.core.trim import FrameRange, trim_video
+from sgblur_video.jobs.analysis import AnalysisKilledError, run_analysis
 from sgblur_video.jobs.store import JobPaths, JobStore, Phase, utcnow
 from sgblur_video.privacy.keep import KeepRecorder
 
@@ -35,8 +38,19 @@ class RemoteDetectError(RuntimeError):
     """The remote Detect API failed or returned an invalid stream."""
 
 
-class _Progress:
-    """Throttled progress reporter writing to the job store."""
+#: Error message of a job whose process was killed by the system.
+KILLED_MESSAGE = (
+    "Processing was killed by the system, most likely for lack of memory: give the service more "
+    "memory, or send a shorter range or a smaller video."
+)
+
+
+class FrameRangeError(ValueError):
+    """The requested frame range holds no frame of the video."""
+
+
+class Progress:
+    """Throttled progress reporter writing to the job store (also used by the analysis process)."""
 
     def __init__(self, store: JobStore, job_id: str) -> None:
         self._store = store
@@ -46,11 +60,13 @@ class _Progress:
         self._phase: Phase = "analyzing"
 
     def phase(self, phase: Phase) -> None:
+        """Start a phase (progress then counts within it)."""
         self._phase = phase
         self._phase_started = time.monotonic()
         self._store.heartbeat(self._job_id)
 
     def __call__(self, done: int, total: int | None) -> None:
+        """Record ``done`` of ``total`` frames of the current phase (at most once a second)."""
         now = time.monotonic()
         if now - self._last < _PROGRESS_INTERVAL_S and not (total and done >= total):
             return
@@ -147,24 +163,28 @@ def run_job(job_id: str, settings: Settings, store: JobStore | None = None) -> b
     if job is None or job.status != "running":
         return False
     paths = store.paths(job)
-    progress = _Progress(store, job_id)
+    progress = Progress(store, job_id)
     started = time.monotonic()
+    frame_range = FrameRange(
+        start=int(job.params.get("start_frame") or 0),
+        end=int(job.params["end_frame"]) if job.params.get("end_frame") is not None else None,
+    )
     try:
         info = probe(paths.input, settings)
         progress.phase("analyzing")
+        if not frame_range.is_whole:
+            try:
+                trim_video(info, settings, frame_range, paths.range_input)
+            except RenderError as exc:
+                raise FrameRangeError(str(exc)) from exc
+            paths.input.unlink(missing_ok=True)  # only the requested range is kept
+            # The output is encoded at the bit rate of the original, not of the near-lossless cut.
+            info = replace(probe(paths.range_input, settings), bit_rate=info.bit_rate)
         if settings.detect_url is not None:
             remote_detect(info, paths.detections, settings, progress)
         else:
-            model = load_model(settings)
-            analyze(
-                info,
-                model.detector,
-                settings,
-                paths.detections,
-                model=model.header(settings),
-                device=model.device,
-                progress=progress,
-            )
+            # In a process of its own: its memory is returned to the system before rendering.
+            run_analysis(job_id, info, settings, paths.detections)
         detections = load_detections(paths.detections, info, allow_partial=False)
         progress.phase("rendering")
         blurring_id = str(uuid.uuid4())
@@ -174,6 +194,7 @@ def run_job(job_id: str, settings: Settings, store: JobStore | None = None) -> b
             detections,
             paths.output,
             settings,
+            debug_output=paths.debug if job.params.get("debug") else None,
             frames_dir=paths.frames if job.params.get("frames") else None,
             progress=progress,
             region_sink_factory=(
@@ -191,8 +212,12 @@ def run_job(job_id: str, settings: Settings, store: JobStore | None = None) -> b
             )
             result.metadata.stats["kept_regions"] = result.region_sink.regions
         result.metadata.stats["processing_s"] = round(time.monotonic() - started, 1)
+        if not frame_range.is_whole:
+            # Timestamps and frame numbers of the annotations count from the start of the range.
+            result.metadata.video["frame_range"] = {"start": frame_range.start, "end": frame_range.end}
         write_metadata(result.metadata, paths.metadata)
         paths.input.unlink(missing_ok=True)
+        paths.range_input.unlink(missing_ok=True)
         paths.detections.unlink(missing_ok=True)
         store.finish(
             job_id,
@@ -212,6 +237,10 @@ def run_job(job_id: str, settings: Settings, store: JobStore | None = None) -> b
         _fail(store, job_id, paths, exc.code, str(exc))
     except (RemoteDetectError, DetectionsFormatError) as exc:
         _fail(store, job_id, paths, "detection_failed", str(exc))
+    except FrameRangeError as exc:
+        _fail(store, job_id, paths, "invalid_parameter", str(exc))
+    except AnalysisKilledError:
+        _fail(store, job_id, paths, "worker_crash", KILLED_MESSAGE)
     except Exception as exc:
         logger.exception("job %s failed", job_id)
         _fail(store, job_id, paths, "processing_error", type(exc).__name__)

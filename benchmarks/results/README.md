@@ -32,28 +32,61 @@ Detection and cross-pass merge only. Counts are detections with score ≥
   benchmark says otherwise.
 - No NVIDIA GPU was available: CUDA is not measured.
 
-### Trackers (`2026-10-06-trackers-clips.json`)
+### Apple Silicon speed-ups, 2026-10-07
 
-Same detections (YOLO26s, `standard`), tracking replayed per tracker on the
-three dataset clips (10 s each): `gopro-pietons` (1080p, pedestrians close to
-the camera), `q360-ville` and `q360-fin` (8K 360°, city streets and a market
-square). `tracktrack-nogmc` is TrackTrack without camera-motion compensation.
+Analysis of 90 frames of the 8K equirectangular city video, YOLO26s `standard`,
+end to end (decode, detection, merge, tracking, `detections.jsonl`), runs made
+back to back (absolute numbers vary with the machine's temperature and load):
 
-| Tracker | Tracked share (gopro / q360-ville / q360-fin) | Blurred chains after linking | Signs | Tracking fps (1080p / 8K) |
+| Change | Frames/s |
+|---|---|
+| Before: FP32, 360° tiles cropped with an index array, stages one after the other | 2.1 |
+| + tiles cropped with slices, FP16 on MPS (`HALF=auto`) | 3.55 |
+| + preparation and tracking overlapped with inference (three-stage pipeline) | **3.9** |
+
+Detections are identical with and without the faster crop and the pipeline (90
+frames). FP16 kept every detection above `CONF_BLUR` of FP32 on 60 busy frames
+(514 faces, 146 plates, 91 signs). In steady state, 78 % of a frame is model
+inference, 70 % for the two 4096 px tiles alone. Core ML (Neural Engine) could
+not be tried: `coremltools` has no wheels for Python 3.14 yet.
+
+### Registered models compared, 2026-10-07
+
+Same 8K video, MPS (FP16), `standard` profile, 12 timed frames (median);
+detections with a score ≥ `CONF_BLUR` per frame (counts, **not** recall).
+
+| Model | s/frame | Faces | Plates | Signs |
 |---|---|---|---|---|
-| TrackTrack (default) | 70.7 % / 11.9 % / 2.8 % | 30 / 695 / 534 | 0 / 20 / 34 | — (ran during analysis) |
-| TrackTrack, no GMC | 70.7 % / 11.6 % / 2.2 % | 30 / 693 / 534 | 0 / 20 / 36 | 1585 / 65 |
-| BoT-SORT | 71.4 % / 10.7 % / 2.2 % | 26 / 682 / 534 | 0 / 19 / 34 | 64 / 38 |
-| ByteTrack | 70.0 % / 10.2 % / 1.9 % | 27 / 681 / 532 | 0 / 19 / 36 | 1714 / 67 |
+| **yolo26s** (default) | 0.25 | **4.1** | 5.1 | 2.6 |
+| yolo11n | 0.11 | 2.2 | 6.1 | 1.2 |
+| yolo11s | 0.23 | 2.4 | 5.0 | 2.8 |
+| yolo11m | 0.53 | 2.8 | 5.0 | 2.0 |
+| yolo11l | 0.68 | 3.3 | 5.0 | 2.5 |
 
-- On 8K 360° footage, **every tracker follows only 2–12 % of the detections**:
-  the model finds small objects on about one frame in two (median fill ratio
-  0.54 inside linked chains) and their merged boxes jump between passes
-  (median IoU 0.52 between consecutive detections). Trackers drop a new track
-  that is not matched on the very next frame.
-- Offline linking (ADR-0011), interpolation and padding carry continuity: the
-  blur plans of the four trackers differ by less than 3 %.
-- Camera-motion compensation costs ~15 ms per frame (1080p) and brings no
-  measurable gain here; it is kept because its cost is small next to detection
-  (0.43 s per 8K frame).
-- Leakage per tracker needs the annotated ground truth (pending).
+YOLO26s reports the most faces, 23 % more than the largest YOLO11 at 2.7× its
+speed, and is the only one with the `direction` class: it stays the default.
+The privacy benchmark on annotated clips will tell whether the extra faces are
+real.
+
+### Trackers against another model, 2026-10-07
+
+Cached YOLO26s detections of four clips re-tracked, default post-processing.
+"Covered" counts the faces and plates found by YOLO11l (score ≥ 0.4) on every
+frame that fall inside a blur region (a proxy until the clips are annotated).
+Details and sweeps: [ADR-0003](../../docs/adr/0003-default-tracker.md#optical-flow-tracker-2026-10-07).
+
+| Clip | Tracker | Plate chains | Plate area | Plates covered | Face chains | Face area | Faces covered |
+|---|---|---|---|---|---|---|---|
+| parking (8K 360°, 38 frames) | TrackTrack | 107 | 3.25 % | 90/92 | 16 | 0.32 % | 2/3 |
+| | **flow** | 45 | 2.66 % | 90/92 | 11 | 0.46 % | 2/3 |
+| q360-ville (8K 360°, 300) | TrackTrack | 232 | 1.24 % | 558/591 | 463 | 2.75 % | 587/647 |
+| | **flow** | 96 | 1.20 % | 560/591 | 178 | 2.02 % | 588/647 |
+| q360-fin (8K 360°, 300) | TrackTrack | 367 | 2.70 % | 863/881 | 167 | 0.70 % | 116/142 |
+| | **flow** | 115 | 2.03 % | 866/881 | 82 | 0.77 % | 120/142 |
+| gopro-pietons (1080p, 300) | TrackTrack | — | — | — | 30 | 20.74 % | 551/644 |
+| | **flow** | — | — | — | 14 | 19.37 % | 553/644 |
+
+Same frames and model, SGBlur's per-picture detection finds 55 plates on 13
+frames of the parking sample and sgblur-video 70 (54 in common, 13 of the
+extra ones below SGBlur's 0.30 threshold): the blurred area differs because of
+the temporal post-processing (padding, margin), not of the detection.

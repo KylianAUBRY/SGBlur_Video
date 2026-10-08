@@ -51,6 +51,31 @@
   .frames figcaption { font-size: .85rem; color: var(--muted); }
   table { border-collapse: collapse; width: 100%; font-size: .9rem; }
   th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+  #range-box { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--border); }
+  #preview { max-height: 260px; margin: 4px 0 8px; }
+  .range { position: relative; height: 28px; margin: 4px 0 10px; }
+  .range .track, .range .fill { position: absolute; top: 12px; height: 4px; border-radius: 2px; }
+  .range .track { left: 0; right: 0; background: var(--bar); }
+  .range .fill { background: var(--accent); }
+  .range input[type=range] { position: absolute; left: 0; width: 100%; top: 4px; margin: 0; height: 20px;
+                             background: none; pointer-events: none; -webkit-appearance: none; appearance: none; }
+  .range input[type=range]::-webkit-slider-runnable-track { background: transparent; height: 20px; }
+  .range input[type=range]::-moz-range-track { background: transparent; }
+  .range input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; pointer-events: auto; width: 18px;
+      height: 18px; margin-top: 1px; border-radius: 50%; background: var(--accent); border: 2px solid var(--card);
+      cursor: grab; }
+  .range input[type=range]::-moz-range-thumb { pointer-events: auto; width: 14px; height: 14px; border-radius: 50%;
+      background: var(--accent); border: 2px solid var(--card); cursor: grab; }
+  .frame-inputs { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; }
+  .frame-inputs input[type=number] { width: 7.5em; padding: 6px 8px; border-radius: 8px; font: inherit;
+                                     border: 1px solid var(--border); background: var(--bg); color: var(--text); }
+  button.small { padding: 6px 12px; font-weight: 500; }
+  .views { display: flex; gap: 8px; margin-top: 4px; }
+  .views button[aria-pressed=true] { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+  .legend { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: .9rem; color: var(--muted); margin: -4px 0 12px; }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .legend i { display: inline-block; width: 24px; height: 14px; border: 3px solid var(--text); border-radius: 4px; }
+  .legend i.dashed { border-style: dashed; }
   [hidden] { display: none !important; }
 </style>
 </head>
@@ -59,6 +84,7 @@
   <h1>SGBlur-Video</h1>
   <p class="lead">Blur faces and licence plates on every frame of a video. Traffic signs are kept and listed as
     Panoramax annotations. The uploaded video is deleted from the server as soon as it is processed.</p>
+  <p class="muted" id="service"></p>
 
   <section class="card" id="upload-card">
     <h2>1. Choose a video</h2>
@@ -67,8 +93,26 @@
       <div id="file-name" class="muted"></div>
     </label>
     <input type="file" id="file" accept="video/mp4,video/quicktime,.mp4,.mov">
+    <div id="range-box" hidden>
+      <h2>Frames to process</h2>
+      <video id="preview" muted playsinline preload="auto"></video>
+      <div class="range" id="range-bar">
+        <div class="track"></div><div class="fill" id="range-fill"></div>
+        <input type="range" id="range-start" min="0" value="0" aria-label="First frame">
+        <input type="range" id="range-end" min="1" value="1" aria-label="Last frame">
+      </div>
+      <div class="frame-inputs">
+        <label>From frame <input type="number" id="start-frame" min="0" value="0"></label>
+        <label>to frame <input type="number" id="end-frame" min="1"> (excluded)</label>
+        <button class="secondary small" id="range-20" type="button">20 frames</button>
+        <button class="secondary small" id="range-all" type="button">Whole video</button>
+      </div>
+      <p class="muted" id="range-info"></p>
+    </div>
     <div class="row">
       <label class="check"><input type="checkbox" id="frames" checked> Best picture of each traffic sign</label>
+      <label class="check"><input type="checkbox" id="debug"> Debug video: outline what the model found (face,
+        plate, sign)</label>
     </div>
     <details>
       <summary>API token</summary>
@@ -91,10 +135,24 @@
   <section class="card" id="result-card" hidden>
     <h2>3. Result</h2>
     <p class="ok">Faces and licence plates are blurred.</p>
+    <div class="views" id="views" hidden>
+      <button class="secondary small" id="view-debug" type="button" aria-pressed="true">Debug video</button>
+      <button class="secondary small" id="view-blurred" type="button" aria-pressed="false">Blurred video</button>
+    </div>
     <video id="video" controls playsinline></video>
-    <p class="muted">If the video does not play, your browser may not support its codec (HEVC): download it.</p>
+    <div class="legend" id="legend" hidden>
+      <span><i style="border-color:#ff00ff"></i>face</span>
+      <span><i style="border-color:#ffd700"></i>plate</span>
+      <span><i style="border-color:#0080ff"></i>sign (kept)</span>
+      <span><i style="border-color:#00ffff"></i>direction sign (kept)</span>
+      <span><i></i>solid: detected on this frame (score)</span>
+      <span><i class="dashed"></i>dashed: no detection on this frame, blurred from the track</span>
+    </div>
+    <p class="muted" id="codec-note">If the video does not play, your browser may not support its codec (HEVC):
+      download it.</p>
     <div class="row">
       <a class="button" id="download" download="blurred.mp4">Download the blurred video</a>
+      <a class="button" id="debug-download" download="blurred.debug.mp4" hidden>Download the debug video</a>
       <button class="secondary" id="metadata-download">Download the annotations (JSON)</button>
       <button class="secondary" id="delete">Delete from the server</button>
     </div>
@@ -111,7 +169,17 @@
 <script>
 "use strict";
 const $ = (id) => document.getElementById(id);
-const state = { file: null, job: null, timer: null, urls: [] };
+const state = { file: null, job: null, timer: null, urls: [], previewUrl: null, videos: {} };
+
+// Which model and device blur the videos (set with MODEL_NAME / MODEL_PATH / DEVICE on the server).
+fetch("/").then((response) => response.json()).then((service) => {
+  const model = service.model || {};
+  $("service").textContent = "Model " + (model.name || "?") + "/" + (model.version || "?") +
+    " · tracker " + (service.tracker || "?") + " · device " + (service.device || "?");
+}).catch(() => {});
+// Frame range: frame numbers are exact on the server; the browser only uses the frame rate to
+// show the matching picture in the preview and the duration of the selection.
+const range = { fps: 30, measured: false, total: null };
 
 function headers() {
   const token = $("token").value.trim();
@@ -148,7 +216,112 @@ function choose(file) {
   state.file = file;
   $("file-name").textContent = file.name + " — " + (file.size / 1e6).toFixed(1) + " MB";
   $("start").disabled = false;
+  setupRange(file);
 }
+
+function setupRange(file) {
+  const preview = $("preview");
+  if (state.previewUrl) URL.revokeObjectURL(state.previewUrl);
+  state.previewUrl = URL.createObjectURL(file);
+  range.total = null;
+  $("range-box").hidden = false;
+  $("range-info").textContent = "Reading the video…";
+  preview.hidden = false;
+  preview.onloadedmetadata = async () => {
+    const fps = await measureFps(preview);
+    range.measured = fps !== null;
+    range.fps = fps || 30;
+    range.total = Math.max(1, Math.round(preview.duration * range.fps));
+    initRange();
+  };
+  preview.onerror = () => {
+    preview.hidden = true;
+    range.total = null;
+    initRange();
+  };
+  preview.src = state.previewUrl;
+}
+
+// Frame duration = smallest gap between presented frames while playing a few of them.
+function measureFps(video) {
+  if (!("requestVideoFrameCallback" in HTMLVideoElement.prototype)) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    const times = [];
+    let finished = false;
+    const finish = () => {
+      if (finished) return;
+      finished = true;
+      video.pause();
+      video.currentTime = 0;
+      const gaps = times.slice(1).map((t, i) => t - times[i]).filter((gap) => gap > 0.001);
+      resolve(gaps.length ? Math.round(100 / Math.min(...gaps)) / 100 : null);
+    };
+    const onFrame = (_now, meta) => {
+      times.push(meta.mediaTime);
+      if (times.length >= 12) finish();
+      else video.requestVideoFrameCallback(onFrame);
+    };
+    video.requestVideoFrameCallback(onFrame);
+    video.play().catch(finish);
+    setTimeout(finish, 4000);
+  });
+}
+
+function initRange() {
+  const known = range.total !== null;
+  $("range-bar").hidden = !known;
+  for (const id of ["range-start", "range-end"]) $(id).max = known ? range.total : 1;
+  $("start-frame").max = known ? range.total - 1 : "";
+  $("end-frame").max = known ? range.total : "";
+  setRange(0, known ? range.total : null);
+}
+
+function setRange(start, end, moved) {
+  const total = range.total;
+  start = Math.max(0, Math.floor(Number(start) || 0));
+  end = end === null || end === "" ? null : Math.floor(Number(end));
+  if (total !== null) {
+    end = end === null ? total : Math.min(total, end);
+    start = Math.min(start, total - 1);
+  }
+  if (end !== null && end <= start) {
+    if (moved === "end") start = Math.max(0, end - 1);
+    else end = start + 1;
+  }
+  $("start-frame").value = start;
+  $("end-frame").value = end === null ? "" : end;
+  if (total !== null) {
+    $("range-start").value = start;
+    $("range-end").value = end;
+    $("range-fill").style.left = (100 * start) / total + "%";
+    $("range-fill").style.width = (100 * (end - start)) / total + "%";
+    const preview = $("preview");
+    if (moved && !preview.hidden) preview.currentTime = ((moved === "end" ? end - 1 : start) + 0.5) / range.fps;
+  }
+  const count = end === null ? null : end - start;
+  const rate = range.measured ? "≈ " + range.fps + " fps" : "frame rate unknown, 30 fps assumed";
+  $("range-info").textContent =
+    total === null
+      ? "Preview unavailable in this browser: type frame numbers (leave “to” empty for the end of the video)."
+      : (isWhole() ? "Whole video: " : "Selection: ") + count + " frames of " + total +
+        " (" + (count / range.fps).toFixed(1) + " s, " + rate + "). Frame numbers start at 0.";
+}
+
+function isWhole() {
+  const start = Number($("start-frame").value) || 0;
+  const end = $("end-frame").value;
+  return start === 0 && (end === "" || (range.total !== null && Number(end) >= range.total));
+}
+
+$("range-start").addEventListener("input", (e) => setRange(e.target.value, $("end-frame").value, "start"));
+$("range-end").addEventListener("input", (e) => setRange($("start-frame").value, e.target.value, "end"));
+$("start-frame").addEventListener("change", (e) => setRange(e.target.value, $("end-frame").value, "start"));
+$("end-frame").addEventListener("change", (e) => setRange($("start-frame").value, e.target.value, "end"));
+$("range-20").addEventListener("click", () => {
+  const start = Number($("start-frame").value) || 0;
+  setRange(start, start + 20, "start");
+});
+$("range-all").addEventListener("click", () => setRange(0, range.total, "start"));
 
 $("file").addEventListener("change", (event) => choose(event.target.files[0]));
 const drop = $("drop");
@@ -164,7 +337,15 @@ $("start").addEventListener("click", () => {
   const form = new FormData();
   form.append("video", state.file);
   const request = new XMLHttpRequest();
-  request.open("POST", "/blur/" + ($("frames").checked ? "?frames=1" : ""));
+  const query = new URLSearchParams();
+  if ($("frames").checked) query.set("frames", "1");
+  if ($("debug").checked) query.set("debug", "1");
+  if (!isWhole()) {
+    query.set("start_frame", String(Number($("start-frame").value) || 0));
+    if ($("end-frame").value !== "") query.set("end_frame", $("end-frame").value);
+  }
+  state.range = isWhole() ? null : [Number($("start-frame").value) || 0, $("end-frame").value];
+  request.open("POST", "/blur/" + (query.toString() ? "?" + query : ""));
   for (const [name, value] of Object.entries(headers())) request.setRequestHeader(name, value);
   request.upload.onprogress = (event) => {
     if (!event.lengthComputable) return;
@@ -180,6 +361,7 @@ $("start").addEventListener("click", () => {
     state.timer = setInterval(poll, 1000);
   };
   request.onerror = () => fail("The upload failed (network error or file too large).");
+  $("preview").pause();
   show("progress-card");
   $("stage").textContent = "Uploading…";
   request.send(form);
@@ -224,9 +406,16 @@ async function showResult(job) {
   const base = "/jobs/" + state.job;
   try {
     // Without a token the browser streams the video with range requests; with one, it is fetched first.
-    const videoUrl = $("token").value.trim() ? await objectUrl(base + "/video") : base + "/video";
-    $("video").src = videoUrl;
+    const fetchFirst = $("token").value.trim() !== "";
+    const videoUrl = fetchFirst ? await objectUrl(base + "/video") : base + "/video";
+    state.videos = { blurred: videoUrl };
     $("download").href = videoUrl;
+    if (job.links && job.links.debug) {
+      state.videos.debug = fetchFirst ? await objectUrl(job.links.debug) : job.links.debug;
+      $("debug-download").href = state.videos.debug;
+    }
+    $("views").hidden = $("debug-download").hidden = !state.videos.debug;
+    setView(state.videos.debug ? "debug" : "blurred");
     const metadata = await (await api(base + "/metadata")).json();
     showSigns(metadata);
     state.metadata = metadata;
@@ -234,10 +423,37 @@ async function showResult(job) {
   } catch (error) {
     return fail(error.message);
   }
+  if (state.range) {
+    const [first, end] = state.range;
+    $("expires").textContent = "Frames " + first + " to " + (end === "" ? "the end" : end - 1) +
+      " of the original video; times above count from frame " + first + ". ";
+  } else {
+    $("expires").textContent = "";
+  }
   if (job.expires_at) {
-    $("expires").textContent = "Results are deleted from the server at " + new Date(job.expires_at).toLocaleString() + ".";
+    $("expires").textContent += "Results are deleted from the server at " + new Date(job.expires_at).toLocaleString() + ".";
   }
 }
+
+// Switch between the blurred and the debug video at the same moment.
+function setView(view) {
+  const video = $("video");
+  const time = video.currentTime;
+  const playing = video.src && !video.paused;
+  video.onloadedmetadata = () => {
+    if (time) video.currentTime = time;
+    if (playing) video.play().catch(() => {});
+  };
+  video.src = state.videos[view];
+  $("view-debug").setAttribute("aria-pressed", String(view === "debug"));
+  $("view-blurred").setAttribute("aria-pressed", String(view === "blurred"));
+  $("legend").hidden = view !== "debug";
+  // The debug video is H.264 and plays everywhere; the blurred one keeps the source codec.
+  $("codec-note").hidden = view === "debug";
+}
+
+$("view-debug").addEventListener("click", () => setView("debug"));
+$("view-blurred").addEventListener("click", () => setView("blurred"));
 
 function showSigns(metadata) {
   const signs = metadata.annotations || [];
@@ -302,7 +518,9 @@ function reset() {
   for (const url of state.urls) URL.revokeObjectURL(url);
   state.urls = [];
   state.job = null;
+  state.videos = {};
   $("video").removeAttribute("src");
+  $("views").hidden = $("legend").hidden = $("debug-download").hidden = true;
   $("bar").style.width = "0%";
   $("detail").textContent = "";
   show(null);
