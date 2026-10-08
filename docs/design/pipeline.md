@@ -1,7 +1,8 @@
 # Pipeline design
 
 > Status: **accepted** (step 2), implemented in steps 4–8; implementation notes
-> are inline. Numbers in *italics* are defaults that remain provisional until
+> are inline. Defaults are precision-oriented since
+> [ADR-0013](../adr/0013-precise-tracking.md): fewer false blurs, tighter shapes. Numbers in *italics* are defaults that remain provisional until
 > the privacy benchmark on annotated real clips ([testing-strategy.md](testing-strategy.md)).
 
 ## 0. Vocabulary
@@ -83,7 +84,7 @@ with pixels copied from the opposite edge, so an object straddling the 0°/360°
 seam is seen whole at least once. Boxes are then mapped to canonical
 coordinates: `x1 ∈ [0, w)`, and `x2` may exceed `w` for a box that wraps.
 
-Inference uses `conf = CONF_DETECT` (*0.10*), the model's default NMS head
+Inference uses `conf = CONF_DETECT` (*0.30*), the model's default NMS head
 (`nms=None`), `quantize=16` on CUDA only, and `classes` restricted to classes
 with a policy.
 
@@ -92,20 +93,22 @@ with a policy.
 All boxes of all passes for one frame are merged per class group with a greedy,
 score-ordered procedure: two boxes are duplicates if IoU ≥ *0.5* or if the
 smaller one is ≥ *80 %* inside the larger (IoMin), using wrap-aware geometry
-for equirect. The cluster keeps the best score and class, and its box is:
-
-- for `blur` groups, the **union** of the cluster's boxes (privacy: never shrink a blur area);
-- for `signage`, the box of the best-scoring member (annotation quality).
-
-SGBlur keeps the smallest box instead; for blurring we prefer the union.
+for equirect. The cluster keeps the best score and class, and the box of its
+**most precise** member: the pass that saw the object at the highest
+resolution (tiles at native resolution, then the largest global pass), ties
+broken by score. Boxes are never merged into their union, which would blur
+around the object.
 
 ### 2.4 Tracking
 
 One tracker instance **per class group**: separate trackers prevent a face
 track from being continued by a plate box, and cost little since the trackers
-run on a downscaled frame. The default is the optical-flow tracker
-(`core/flowtrack.py`, `tracker_type: flow`,
-[ADR-0003](../adr/0003-default-tracker.md)): each track's box is moved by the
+run on a downscaled frame. The default is **BoT-SORT**
+(`configs/trackers/botsort.yaml`, [ADR-0013](../adr/0013-precise-tracking.md)),
+precision-oriented: a new track needs a detection ≥ *0.5*, detections down to
+*0.3* only extend existing tracks, and a lost track is kept *0.5 s*. The
+optical-flow tracker remains available (`core/flowtrack.py`,
+`configs/trackers/flow.yaml`, [ADR-0003](../adr/0003-default-tracker.md)): each track's box is moved by the
 median Lucas-Kanade flow of a grid of points over the box and one box size
 around it (forward-backward checked), then tracks and detections are matched
 by centre distance (optimal assignment, distances wrapped around the 360°
@@ -158,7 +161,7 @@ blurred        .    ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓
 ### 3.0 What gets blurred
 
 For `blur` classes, a detection is blurred if **either** its own score is
-≥ `CONF_BLUR` (*0.15*, orphans included), **or** it belongs to a track that
+≥ `CONF_BLUR` (*0.40*, orphans included), **or** it belongs to a track that
 contains at least one detection ≥ `CONF_BLUR`. Detections between
 `CONF_DETECT` and `CONF_BLUR` therefore extend confirmed tracks (useful when a
 face turns away) without blurring isolated low-score noise. A track split at a
@@ -168,7 +171,7 @@ then goes through the steps below.
 ### 3.0b Offline linking ([ADR-0011](../adr/0011-offline-linking.md))
 
 Tracker tracks and orphans are *fragments*. Fragments of the same class group
-are chained when one starts at most `LINK_MAX_GAP_S` (*1 s*) after a chain ends,
+are chained when one starts at most `LINK_MAX_GAP_S` (*0.5 s*) after a chain ends,
 within `LINK_MAX_DISTANCE` (*1* box size, +10 % per frame of gap) of the chain's
 extrapolated position, with areas within ×4. Small, distant objects are often
 seen only every other frame and trackers fail to confirm them; linking turns
@@ -190,9 +193,9 @@ turn left and right. (The separate stitching pass with `SEAM_MARGIN` /
 For two consecutive observations of a track at frames `i < j` with `j − i > 1`,
 every frame `k` in between receives a box linearly interpolated between the two
 boxes (x coordinates unwrapped for equirect). Gaps longer than
-`MAX_INTERPOLATION_GAP_S` (*2 s*) are not interpolated (the object may have
+`MAX_INTERPOLATION_GAP_S` (*0.3 s*) are not interpolated (the object may have
 left the field); both ends still receive temporal padding. Neither are two
-observations whose centres are more than `MAX_INTERPOLATION_JUMP` (*20* box
+observations whose centres are more than `MAX_INTERPOLATION_JUMP` (*5* box
 sizes, largest side of either box) apart: that is two objects tracked as one,
 and interpolating would sweep a blur across the frame between them (seen on 8K
 360° video: one face track jumping 3 000 px in 24 frames). The chain is split
@@ -200,44 +203,46 @@ there; each part is selected (§3.0) and padded on its own, and its padded
 boxes are never merged with the boxes of the other part, so a low-score false
 positive is not blurred because a real face elsewhere shares its track.
 
-### 3.3 Envelope smoothing
+### 3.3 Temporal smoothing
 
-Box coordinates are smoothed with a centred moving average over *5* frames,
-and the final box is the **union** of the smoothed and the original box, so
-smoothing removes jitter without ever shrinking a blur area.
+Box coordinates are smoothed with a true centred moving average over *5*
+frames (no union with the original box): jitter is removed and boxes keep the
+size of the object. The window shrinks symmetrically at the ends of a segment,
+so the first and last boxes are the detections themselves. When a chain has
+several boxes on one frame, the best-scoring one is kept, never their union.
 
 ### 3.4 Temporal padding
 
 Before the first and after the last observation of every `blur` track,
-`BLUR_TEMPORAL_PADDING_FRAMES` (*12*, 0.4 s at 30 fps) extra frames are
+`BLUR_TEMPORAL_PADDING_FRAMES` (*3*, 0.1 s at 30 fps) extra frames are
 blurred. The padded box's **centre** follows the track's mean velocity over its
 first (or last) *5* observations, when at least *3* observations measure it
 and at most *0.5* box size per frame; its **size** stays that of the end box,
-enlarged by `BLUR_PADDING_GROWTH` (*5 %* per frame) to absorb motion
+enlarged by `BLUR_PADDING_GROWTH` (*2 %* per frame) to absorb motion
 uncertainty. Following the size change as well (an approaching car's plate
 grows quickly) made padded boxes several times larger than the object: a
 190 px plate padded with an 830 px box landing on the camera car's roof.
 Orphans get the same padding with zero velocity.
 
-Rationale for 12 frames: detectors typically pick a face up a few frames
-after it becomes recognisable (small, blurred by motion, partially occluded),
-and lose it a few frames before it leaves. ⅓–½ s is the order of magnitude used
-for "transient exposure" in recent video anonymisation work (UrbanAnonymizer,
-⅓ s). 15 frames made padding about 80 % of the blurred area on 8K 360° street
-video; 12 is the shortest value for which the synthetic privacy scenario
-(a small fast face lost 12 frames before it leaves) shows no leak. The privacy
-benchmark measures the exposure that remains at the start and end of
-ground-truth tracks ("transient exposures"); this value will be revisited with
-its results on annotated clips.
+Rationale for 3 frames: padding blurs frames where nothing was detected, and
+made up 70–80 % of the blurred area on 8K 360° street video with 12–15 frames.
+A few frames cover the usual detection lag; an object detected late or lost
+early beyond that stays visible on those frames
+([ADR-0013](../adr/0013-precise-tracking.md)). The privacy benchmark measures
+the exposure that remains at the start and end of ground-truth tracks; this
+value will be revisited with its results on annotated clips.
 
 ### 3.5 Spatial margin and shapes
 
-Every box is enlarged by `BLUR_BOX_MARGIN` (*0.10* of its width/height on each
-side; 0.05 left a plate edge visible across the 360° seam in the synthetic
-scenario), then turned into a shape:
+Every box is enlarged by `BLUR_BOX_MARGIN` (*0.05* of its width/height on each
+side), then turned into a shape:
 
-- `face` → **ellipse circumscribing the enlarged box** (semi-axes = √2 × half-width/half-height). An ellipse inscribed in a box leaves 21.5 % of the box (the corners) unblurred; the circumscribed one contains the whole box.
+- `face` → **ellipse inscribed in the enlarged box** (semi-axes = half-width/half-height): a face is oval, the corners of its box are background. The circumscribed ellipse used before covered 1.57 times the box.
 - `plate` → rectangle.
+
+Segmentation masks or oriented boxes (OBB) would fit faces and plates better,
+but need a segmentation or OBB model; the available weights are detection
+models.
 
 Shapes are clipped to the frame; for equirect, a shape crossing `x = w` is
 split into its two parts.

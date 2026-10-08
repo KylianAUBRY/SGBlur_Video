@@ -19,9 +19,8 @@ A face blurred on 299 frames and visible on one frame is a privacy failure.
 SGBlur-Video therefore:
 
 - detects on **every** frame, at several scales (and in tiles for 8K 360° footage);
-- **tracks** objects over time and blurs the frames where the detector missed them (gap interpolation);
-- blurs a few frames **before and after** each track, with a safety margin around every box;
-- blurs **untracked low-score detections** too: recall beats precision;
+- **tracks** objects over time (BoT-SORT) and blurs the few frames where the detector briefly missed them;
+- favours **precision**: only confident objects are blurred, with tight shapes (the most precise box, a small margin, an ellipse for faces) and short gap filling, rather than large blurs in the wrong place ([ADR-0013](docs/adr/0013-precise-tracking.md));
 - uses an **irreversible** blur (mosaic + blur, or solid fill), never a light Gaussian;
 - **never blurs traffic signs**: they are deduplicated per physical sign and returned as semantic annotations (`osm|traffic_sign=yes`, same tags as SGBlur);
 - keeps no original video once processing ends, even on failure.

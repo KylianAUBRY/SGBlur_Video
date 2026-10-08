@@ -223,14 +223,14 @@ class Settings(BaseSettings):
         json_schema_extra=_doc("Detection", "A wrong value breaks seam handling on 360° videos."),
     )
     conf_detect: float = Field(
-        0.10,
+        0.30,
         ge=0.0,
         le=1.0,
         description="Minimum detector score kept (and fed to the trackers).",
         json_schema_extra=_doc("Detection", "Higher values miss more objects."),
     )
     conf_blur: float = Field(
-        0.15,
+        0.40,
         ge=0.0,
         le=1.0,
         description=(
@@ -254,10 +254,10 @@ class Settings(BaseSettings):
 
     # --- Tracking ---------------------------------------------------------------------------
     tracker_config: Path = Field(
-        Path("configs/trackers/flow.yaml"),
+        Path("configs/trackers/botsort.yaml"),
         description=(
-            "Tracker YAML: the optical-flow tracker (`flow.yaml`) or an Ultralytics tracker "
-            "(plus the `track_buffer_s` extension)."
+            "Tracker YAML: BoT-SORT (`botsort.yaml`, default), another Ultralytics tracker or the "
+            "optical-flow tracker (`flow.yaml`), plus the `track_buffer_s` extension."
         ),
         json_schema_extra=_doc("Tracking", "Gap filling relies on track continuity."),
     )
@@ -282,33 +282,33 @@ class Settings(BaseSettings):
         json_schema_extra=_doc("Post-processing and blur", "More cells keep more identity information."),
     )
     blur_box_margin: float = Field(
-        0.10,
+        0.05,
         ge=0.0,
         le=1.0,
         description="Enlargement of each box on each side, as a fraction of its width/height.",
         json_schema_extra=_doc("Post-processing and blur", "Lower values may leave edges visible."),
     )
     blur_temporal_padding_frames: int = Field(
-        12,
+        3,
         ge=0,
         description="Frames blurred before the first and after the last detection of a track or orphan.",
         json_schema_extra=_doc("Post-processing and blur", "Lower values expose objects at track ends."),
     )
     blur_padding_growth: float = Field(
-        0.05,
+        0.02,
         ge=0.0,
         le=1.0,
         description="Per-frame growth of padded boxes, to absorb motion uncertainty.",
         json_schema_extra=_doc("Post-processing and blur", "Lower values may miss moving objects."),
     )
     max_interpolation_gap_s: float = Field(
-        2.0,
+        0.3,
         ge=0.0,
         description="Longest gap inside a track that is filled by interpolation, in seconds.",
         json_schema_extra=_doc("Post-processing and blur", "Lower values leave gaps unblurred."),
     )
     max_interpolation_jump: float = Field(
-        20.0,
+        5.0,
         gt=0.0,
         description=(
             "Largest move, in box sizes, between two detections of a track that is filled by "
@@ -321,7 +321,7 @@ class Settings(BaseSettings):
         ),
     )
     link_max_gap_s: float = Field(
-        1.0,
+        0.5,
         ge=0.0,
         description=(
             "Longest interruption, in seconds, across which detections of one object are linked offline "

@@ -110,18 +110,16 @@ def center(box: Box) -> tuple[float, float]:
     return ((box[0] + box[2]) / 2, (box[1] + box[3]) / 2)
 
 
-def circumscribed_ellipse(box: Box) -> tuple[float, float, float, float]:
-    """Ellipse with the box's aspect ratio passing through its four corners.
+def inscribed_ellipse(box: Box) -> tuple[float, float, float, float]:
+    """Ellipse inscribed in the box: it touches the middle of each side (a face is oval).
 
-    An ellipse *inscribed* in a box leaves its corners (21.5 % of the area)
-    uncovered; the circumscribed one, with semi-axes √2 × the half-sides,
-    contains the whole box.
+    It covers π/4 (78.5 %) of the box and leaves its corners out.
 
     Returns:
-        ``(cx, cy, rx, ry)``: centre and semi-axes.
+        ``(cx, cy, rx, ry)``: centre and semi-axes (half the box width and height).
     """
     cx, cy = center(box)
-    return (cx, cy, width(box) / 2 * math.sqrt(2), height(box) / 2 * math.sqrt(2))
+    return (cx, cy, width(box) / 2, height(box) / 2)
 
 
 def round_out(box: Box) -> tuple[int, int, int, int]:

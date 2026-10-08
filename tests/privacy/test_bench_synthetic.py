@@ -1,11 +1,13 @@
 """The privacy benchmark (method D) run on synthetic ground truth.
 
 The scenario of the oracle doubles as an annotated clip whose ground truth is
-exact: the benchmark must find no leak with the default settings, find leaks
-when the protections are disabled, and give the same answer through the CLI.
+exact. Tracking favours precision (ADR-0013): the benchmark must report the
+plate only ever detected below ``CONF_BLUR`` as leaking on every frame, protect
+it once ``CONF_BLUR`` is lowered, and give the same answers through the CLI.
 """
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 from typer.testing import CliRunner
@@ -79,7 +81,12 @@ def prepared(tmp_path: Path, repo_root: Path) -> tuple[Dataset, Settings, VideoI
     return dataset, settings, info, DetectionCache(dataset.cache_dir(CLIP), entry.sha256, loader)
 
 
-def test_benchmark_finds_no_leak_with_defaults_and_leaks_without_protections(
+#: The fake detector's boxes are 10 % smaller than the truth and BLUR_BOX_MARGIN is 5 %: a protected
+#: object-frame covers about 80-95 % of its ground truth.
+COVERAGE = 0.75
+
+
+def test_benchmark_measures_the_precision_policy(
     prepared: tuple[Dataset, Settings, VideoInfo, DetectionCache], repo_root: Path
 ) -> None:
     _dataset, settings, info, cache = prepared
@@ -100,19 +107,22 @@ def test_benchmark_finds_no_leak_with_defaults_and_leaks_without_protections(
     ]
 
     truth = _truth(info)
-    protected = summarize(
-        [evaluate_clip(truth, plan_for(detections, info, settings), coverage_threshold=0.9, fps=FPS)]
-    )
-    assert protected["overall"]["unprotected"] == 0, protected
 
-    weak = settings.model_copy(
-        update={"blur_temporal_padding_frames": 0, "max_interpolation_gap_s": 0.0, "link_max_gap_s": 0.0}
-    )
-    leaking = summarize(
-        [evaluate_clip(truth, plan_for(detections, info, weak), coverage_threshold=0.9, fps=FPS)]
-    )
-    assert leaking["overall"]["unprotected"] > 0
-    assert leaking["tracks_ever_leaked"] > 0
+    def summary(**overrides: object) -> dict[str, Any]:
+        variant = settings.model_copy(update=overrides)
+        plan = plan_for(detections, info, variant)
+        return summarize([evaluate_clip(truth, plan, coverage_threshold=COVERAGE, fps=FPS)])
+
+    defaults = summary()
+    # The plate is only ever detected at 0.3 < CONF_BLUR: never blurred (no false blur risked).
+    plate = defaults["by_class"]["plate"]
+    assert plate["unprotected"] == plate["object_frames"] == 60
+    # Faces: only the frames the detector misses beyond the short padding stay exposed.
+    assert defaults["by_class"]["face"]["unprotected"] <= 12
+
+    lenient = summary(conf_blur=0.3)
+    assert lenient["by_class"]["plate"]["unprotected"] <= 1
+    assert lenient["overall"]["unprotected"] < defaults["overall"]["unprotected"]
 
 
 def test_cli_import_and_privacy_gate(
@@ -168,28 +178,24 @@ def test_cli_import_and_privacy_gate(
     assert len(imported.tracks) == len(truth.tracks)
     assert dataset.load_manifest().get(CLIP).ground_truth_sha256 is not None
 
-    thresholds = str(repo_root / "benchmarks" / "privacy-thresholds.yaml")
-    reports = tmp_path / "reports"
-    args = ["benchmark", "privacy", "--dataset", str(dataset.root), "--thresholds", thresholds]
-    result = runner.invoke(
-        app, [*args, "--report-dir", str(reports), "--sweep", "BLUR_TEMPORAL_PADDING_FRAMES=15,0"]
+    # Gate for the scripted scenario (the real gate, benchmarks/privacy-thresholds.yaml, is for real clips).
+    thresholds = tmp_path / "thresholds.yaml"
+    thresholds.write_text(
+        "annotated_dataset:\n"
+        f"  coverage_threshold: {COVERAGE}\n"
+        "  max_leakage_rate_readable: 0.25\n"
+        "  max_consecutive_exposed_frames_readable: 20\n",
+        encoding="utf-8",
     )
+    reports = tmp_path / "reports"
+    args = ["benchmark", "privacy", "--dataset", str(dataset.root), "--thresholds", str(thresholds)]
+    result = runner.invoke(app, [*args, "--report-dir", str(reports), "--sweep", "CONF_BLUR=0.3,0.4"])
     assert result.exit_code == 0, result.output
-    assert "| BLUR_TEMPORAL_PADDING_FRAMES=15 | pass |" in result.output
+    assert "| CONF_BLUR=0.3 | pass |" in result.output
+    assert "| CONF_BLUR=0.4 | FAIL |" in result.output  # the weak plate is left visible by design
     assert len(list(reports.glob("privacy-*.json"))) == 1
 
     # The gate fails (exit code 1) when the first run leaks readable objects.
-    result = runner.invoke(
-        app,
-        [
-            *args,
-            "--sweep",
-            "MAX_INTERPOLATION_GAP_S=0",
-            "--sweep",
-            "LINK_MAX_GAP_S=0",
-            "--sweep",
-            "BLUR_TEMPORAL_PADDING_FRAMES=0",
-        ],
-    )
+    result = runner.invoke(app, [*args, "--sweep", "CONF_BLUR=0.95"])
     assert result.exit_code == 1, result.output
     assert "FAIL" in result.output

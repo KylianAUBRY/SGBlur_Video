@@ -19,8 +19,9 @@ Steps for ``blur`` classes (faces, plates):
 4. **Gap filling** — frames between two detections of a chain (up to
    ``MAX_INTERPOLATION_GAP_S``, and only if the object moved at most
    ``MAX_INTERPOLATION_JUMP`` box sizes) get a linearly interpolated box.
-5. **Envelope smoothing** — a 5-frame moving average removes jitter; the final
-   box is the union of the smoothed and original boxes, so it never shrinks.
+5. **Temporal smoothing** — a centred moving average over ``SMOOTHING_WINDOW``
+   frames removes the jitter of the boxes (a true average: no union with the
+   original box, so boxes stay the size of the object).
 6. **Temporal padding** — ``BLUR_TEMPORAL_PADDING_FRAMES`` frames before the
    first and after the last detection of each chain segment are blurred too,
    with the box growing by ``BLUR_PADDING_GROWTH`` per frame. Its centre follows
@@ -28,7 +29,11 @@ Steps for ``blur`` classes (faces, plates):
    measure it, at most ``PADDING_MAX_SPEED`` box sizes per frame; its size does
    not follow the chain's growth.
 7. **Margin and shape** — boxes are enlarged by ``BLUR_BOX_MARGIN``; faces are
-   blurred with the ellipse circumscribing that box, other classes with the box.
+   blurred with the ellipse inscribed in that box (a face is oval), other
+   classes with the box.
+
+Boxes are never merged into a larger union box: when a frame holds several
+boxes of one chain, the most reliable one is kept.
 
 On 360° video, every step measures distances around the 0°/360° seam
 (``wrap_width``), so an object crossing it stays one chain. Signs are linked
@@ -53,7 +58,6 @@ from sgblur_video.core.geometry import (
     height,
     lerp,
     translate,
-    union_box,
     width,
 )
 from sgblur_video.video360.wrap import normalize, unwrap_towards
@@ -63,7 +67,7 @@ Source = Literal["detected", "interpolated", "padded", "orphan"]
 #: Classes blurred with an ellipse; every other blurred class uses a rectangle.
 ELLIPSE_CLASSES = frozenset({"face"})
 
-#: Window of the envelope smoothing, in frames (odd).
+#: Window of the temporal smoothing (centred moving average), in frames (odd).
 SMOOTHING_WINDOW = 5
 
 #: Detections used to estimate a chain's velocity at each end.
@@ -90,7 +94,7 @@ class BlurShape:
     """One region to blur on one frame.
 
     Attributes:
-        kind: ``ellipse`` (circumscribing ``box``) or ``rect``.
+        kind: ``ellipse`` (inscribed in ``box``) or ``rect``.
         box: Margin-enlarged box in coded-frame pixels (may extend past the frame edges).
         cls: Class name.
         source: ``detected``, ``interpolated``, ``padded``, or ``orphan`` (isolated detection).
@@ -378,16 +382,16 @@ def _segments(observations: list[Observation], max_gap_frames: int) -> list[list
 
 
 def _densify(segment: list[Observation]) -> tuple[list[int], list[Box], list[bool]]:
-    """Every frame from the first to the last observation (union of same-frame boxes, gaps interpolated).
+    """Every frame from the first to the last observation (best box of each frame, gaps interpolated).
 
     Returns:
         Frames, boxes, and whether each box was observed (``False`` = interpolated).
     """
-    per_frame: dict[int, Box] = {}
+    best: dict[int, Observation] = {}
     for obs in segment:
-        per_frame[obs.frame] = (
-            union_box([per_frame[obs.frame], obs.box]) if obs.frame in per_frame else obs.box
-        )
+        if obs.frame not in best or obs.score > best[obs.frame].score:
+            best[obs.frame] = obs  # several boxes on one frame: the best one, never their union
+    per_frame = {frame: obs.box for frame, obs in best.items()}
     observed = sorted(per_frame)
     frames: list[int] = []
     boxes: list[Box] = []
@@ -407,18 +411,25 @@ def _densify(segment: list[Observation]) -> tuple[list[int], list[Box], list[boo
 
 
 def _smooth(boxes: list[Box]) -> list[Box]:
-    """Envelope smoothing: moving average, then union with the original box."""
-    half = SMOOTHING_WINDOW // 2
+    """Temporal smoothing: centred moving average of the box coordinates.
+
+    The window shrinks symmetrically near the ends of a segment (the first and
+    last boxes are kept as they are), so a moving object is never averaged
+    towards positions on one side only.
+    """
     result = []
-    for i, box in enumerate(boxes):
-        window = boxes[max(0, i - half) : i + half + 1]
-        mean: Box = (
-            sum(b[0] for b in window) / len(window),
-            sum(b[1] for b in window) / len(window),
-            sum(b[2] for b in window) / len(window),
-            sum(b[3] for b in window) / len(window),
+    last = len(boxes) - 1
+    for i in range(len(boxes)):
+        half = min(SMOOTHING_WINDOW // 2, i, last - i)
+        window = boxes[i - half : i + half + 1]
+        result.append(
+            (
+                sum(b[0] for b in window) / len(window),
+                sum(b[1] for b in window) / len(window),
+                sum(b[2] for b in window) / len(window),
+                sum(b[3] for b in window) / len(window),
+            )
         )
-        result.append(union_box([mean, box]))
     return result
 
 
@@ -467,11 +478,9 @@ def build_blur_plan(
         if not 0 <= frame < frame_count:
             return
         existing = regions.get((frame, *key))
-        if existing is None:
+        # Never a union: the box from the most reliable source wins (a detection over a padded box).
+        if existing is None or _SOURCE_PRIORITY[source] > _SOURCE_PRIORITY[existing[1]]:
             regions[(frame, *key)] = (box, source, cls)
-            return
-        best = source if _SOURCE_PRIORITY[source] > _SOURCE_PRIORITY[existing[1]] else existing[1]
-        regions[(frame, *key)] = (union_box([existing[0], box]), best, cls)
 
     for chain in chains:
         observations = chain.observations

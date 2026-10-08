@@ -33,7 +33,7 @@ import numpy as np
 import numpy.typing as npt
 
 from sgblur_video.config import BlurMethod
-from sgblur_video.core.geometry import Box, circumscribed_ellipse
+from sgblur_video.core.geometry import Box, inscribed_ellipse
 
 #: 2-D uint8 (8-bit) or uint16 (10-bit) plane.
 PlaneArray = npt.NDArray[Any]
@@ -44,7 +44,7 @@ class PlaneShape:
     """A shape expressed in the pixel coordinates of one plane.
 
     Attributes:
-        kind: ``ellipse`` (circumscribing ``box``) or ``rect``.
+        kind: ``ellipse`` (inscribed in ``box``) or ``rect``.
         box: Box in plane pixels (may extend past the plane edges).
     """
 
@@ -55,7 +55,7 @@ class PlaneShape:
 def _roi(shape: PlaneShape, plane_width: int, plane_height: int) -> tuple[int, int, int, int] | None:
     """Integer region covered by the shape, clipped to the plane; None if empty."""
     if shape.kind == "ellipse":
-        cx, cy, rx, ry = circumscribed_ellipse(shape.box)
+        cx, cy, rx, ry = inscribed_ellipse(shape.box)
         x1, y1, x2, y2 = cx - rx, cy - ry, cx + rx, cy + ry
     else:
         x1, y1, x2, y2 = shape.box
@@ -70,7 +70,7 @@ def _mask(shape: PlaneShape, roi: tuple[int, int, int, int]) -> npt.NDArray[np.b
     """Boolean mask of the shape inside the ROI (None means the whole ROI)."""
     if shape.kind == "rect":
         return None
-    cx, cy, rx, ry = circumscribed_ellipse(shape.box)
+    cx, cy, rx, ry = inscribed_ellipse(shape.box)
     left, top, right, bottom = roi
     # Pixel centres; a pixel is blurred when its centre is inside the ellipse,
     # and the ellipse is grown by half a pixel so that edge pixels are included.

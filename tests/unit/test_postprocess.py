@@ -51,14 +51,20 @@ def _covered(plan, frame: int, box: Box) -> bool:
     return any(iomin(shape.box, box) >= 0.999 for shape in plan.shapes(frame))
 
 
-def test_tracked_gap_is_interpolated() -> None:
-    frames = {0: [("face", 0.9, (0, 0, 10, 10), "face:1")], 10: [("face", 0.9, (100, 0, 110, 10), "face:1")]}
+def test_short_tracked_gap_is_interpolated() -> None:
+    frames = {0: [("face", 0.9, (0, 0, 10, 10), "face:1")], 6: [("face", 0.9, (30, 0, 40, 10), "face:1")]}
     plan = _plan(frames)
-    shape = plan.shapes(5)[0]
+    shape = plan.shapes(3)[0]
     assert shape.source == "interpolated"
-    assert _covered(plan, 5, (50, 0, 60, 10))
-    assert all(plan.shapes(i) for i in range(11))
-    assert not plan.shapes(11)
+    assert shape.box == pytest.approx((15, 0, 25, 10))
+    assert all(plan.shapes(i) for i in range(7))
+    assert not plan.shapes(7)
+
+
+def test_long_gaps_are_not_interpolated_by_default() -> None:
+    # 10 missing frames (0.33 s at 30 fps) is longer than MAX_INTERPOLATION_GAP_S (0.3 s, 9 frames).
+    frames = {0: [("face", 0.9, (0, 0, 10, 10), "face:1")], 11: [("face", 0.9, (0, 0, 10, 10), "face:1")]}
+    assert not _plan(frames).shapes(5)
 
 
 def test_gap_longer_than_limit_is_not_interpolated() -> None:

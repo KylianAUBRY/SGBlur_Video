@@ -35,12 +35,14 @@ def test_pixelate_keeps_at_most_cells_degrees_of_freedom() -> None:
     assert np.abs(np.diff(plane.astype(int), axis=1)).max() < 40
 
 
-def test_ellipse_covers_the_whole_box_and_not_far_corners() -> None:
+def test_ellipse_is_inscribed_in_the_box() -> None:
     plane = _checkerboard(200, 200)
     original = plane.copy()
     box = (80.0, 80.0, 120.0, 120.0)
     blur_plane(plane, [PlaneShape("ellipse", box)], BlurMethod.SOLID, cells=6, neutral=7)
-    assert (plane[80:120, 80:120] == 7).all()  # the detected box is entirely covered
+    assert (plane[88:112, 88:112] == 7).all()  # the inner part of the oval is covered
+    assert (plane[99:101, 80:120] == 7).all()  # it reaches the middle of each side
+    assert np.array_equal(plane[80:84, 80:84], original[80:84, 80:84])  # box corners untouched
     assert np.array_equal(plane[:60, :60], original[:60, :60])  # far corner untouched
 
 

@@ -19,9 +19,8 @@ apparaissent**, et renvoie **une annotation Panoramax par panneau physique**.
 Un visage flouté sur 299 images et net sur une seule est un échec. SGBlur-Video :
 
 - détecte sur **chaque** image, à plusieurs échelles (et par tuiles pour la 360° en 8K) ;
-- **suit** les objets dans le temps et floute aussi les images où le détecteur les a ratés ;
-- floute quelques images **avant et après** chaque piste, avec une marge autour de chaque boîte ;
-- floute aussi les **détections isolées de faible confiance** : mieux vaut trop flouter que pas assez ;
+- **suit** les objets dans le temps (BoT-SORT) et floute les quelques images où le détecteur les a brièvement ratés ;
+- privilégie la **précision** : seuls les objets détectés avec confiance sont floutés, avec des formes ajustées (la boîte la plus précise, une petite marge, une ellipse pour les visages) et un comblement court, plutôt que de grands flous au mauvais endroit ([ADR-0013](docs/adr/0013-precise-tracking.md), en anglais) ;
 - utilise un flou **irréversible** (mosaïque + flou, ou aplat) ;
 - **ne floute jamais les panneaux** : ils sont dédoublonnés et renvoyés comme annotations sémantiques (`osm|traffic_sign=yes`, mêmes tags que SGBlur) ;
 - ne conserve aucune vidéo originale après le traitement, même en cas d'erreur.

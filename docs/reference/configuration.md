@@ -41,8 +41,8 @@ privacy note must not be changed without running the privacy benchmark
 | `TILE_TRIGGER_WIDTH` | integer | `5760` | Frame long side (px) from which the tile pass runs. | Higher values miss more small objects. |
 | `EQUIRECT_PAD_RATIO` | number | `0.0625` | Circular padding added on each side of 360° frames, as a fraction of the width. | Lower values miss more objects at the 0°/360° seam. |
 | `PROJECTION` | `auto` \| `flat` \| `equirectangular` | `auto` | Force the projection when metadata is missing or wrong. | A wrong value breaks seam handling on 360° videos. |
-| `CONF_DETECT` | number | `0.1` | Minimum detector score kept (and fed to the trackers). | Higher values miss more objects. |
-| `CONF_BLUR` | number | `0.15` | Score from which a face/plate detection is blurred on its own; lower-score detections are blurred when their track contains a detection at or above it. | Higher values leave more faces and plates visible. |
+| `CONF_DETECT` | number | `0.3` | Minimum detector score kept (and fed to the trackers). | Higher values miss more objects. |
+| `CONF_BLUR` | number | `0.4` | Score from which a face/plate detection is blurred on its own; lower-score detections are blurred when their track contains a detection at or above it. | Higher values leave more faces and plates visible. |
 | `CONF_SIGN` | number | `0.6` | Minimum best score of a sign track to produce an annotation (SGBlur value). | — |
 | `DETECT_URL` | URL | empty | Remote Detect API. Empty: detection runs in the worker process (SGBlur convention). | Videos are sent over the network: use a private network. |
 
@@ -50,7 +50,7 @@ privacy note must not be changed without running the privacy benchmark
 
 | Variable | Type | Default | Description | Privacy |
 |---|---|---|---|---|
-| `TRACKER_CONFIG` | path | `configs/trackers/flow.yaml` | Tracker YAML: the optical-flow tracker (`flow.yaml`) or an Ultralytics tracker (plus the `track_buffer_s` extension). | Gap filling relies on track continuity. |
+| `TRACKER_CONFIG` | path | `configs/trackers/botsort.yaml` | Tracker YAML: BoT-SORT (`botsort.yaml`, default), another Ultralytics tracker or the optical-flow tracker (`flow.yaml`), plus the `track_buffer_s` extension. | Gap filling relies on track continuity. |
 | `TRACK_WIDTH` | integer | `1920` | Width of the frame used for tracking and camera-motion compensation. | — |
 
 ## Post-processing and blur
@@ -59,12 +59,12 @@ privacy note must not be changed without running the privacy benchmark
 |---|---|---|---|---|
 | `BLUR_METHOD` | `pixelate_blur` \| `gaussian_strong` \| `solid` | `pixelate_blur` | Irreversible blur operation: `pixelate_blur`, `gaussian_strong` or `solid`. | `gaussian_strong` is the weakest option. |
 | `PIXELATE_CELLS` | integer | `6` | Maximum number of mosaic cells on the long side of a blurred shape. | More cells keep more identity information. |
-| `BLUR_BOX_MARGIN` | number | `0.1` | Enlargement of each box on each side, as a fraction of its width/height. | Lower values may leave edges visible. |
-| `BLUR_TEMPORAL_PADDING_FRAMES` | integer | `12` | Frames blurred before the first and after the last detection of a track or orphan. | Lower values expose objects at track ends. |
-| `BLUR_PADDING_GROWTH` | number | `0.05` | Per-frame growth of padded boxes, to absorb motion uncertainty. | Lower values may miss moving objects. |
-| `MAX_INTERPOLATION_GAP_S` | number | `2.0` | Longest gap inside a track that is filled by interpolation, in seconds. | Lower values leave gaps unblurred. |
-| `MAX_INTERPOLATION_JUMP` | number | `20.0` | Largest move, in box sizes, between two detections of a track that is filled by interpolation (larger jumps are two objects tracked as one). | Lower values leave fast objects unblurred between detections; higher values sweep blur across the frame. |
-| `LINK_MAX_GAP_S` | number | `1.0` | Longest interruption, in seconds, across which detections of one object are linked offline (flickering small objects). | Lower values break objects into more pieces (more padding, not less blur). |
+| `BLUR_BOX_MARGIN` | number | `0.05` | Enlargement of each box on each side, as a fraction of its width/height. | Lower values may leave edges visible. |
+| `BLUR_TEMPORAL_PADDING_FRAMES` | integer | `3` | Frames blurred before the first and after the last detection of a track or orphan. | Lower values expose objects at track ends. |
+| `BLUR_PADDING_GROWTH` | number | `0.02` | Per-frame growth of padded boxes, to absorb motion uncertainty. | Lower values may miss moving objects. |
+| `MAX_INTERPOLATION_GAP_S` | number | `0.3` | Longest gap inside a track that is filled by interpolation, in seconds. | Lower values leave gaps unblurred. |
+| `MAX_INTERPOLATION_JUMP` | number | `5.0` | Largest move, in box sizes, between two detections of a track that is filled by interpolation (larger jumps are two objects tracked as one). | Lower values leave fast objects unblurred between detections; higher values sweep blur across the frame. |
+| `LINK_MAX_GAP_S` | number | `0.5` | Longest interruption, in seconds, across which detections of one object are linked offline (flickering small objects). | Lower values break objects into more pieces (more padding, not less blur). |
 | `LINK_MAX_DISTANCE` | number | `1.0` | Maximum distance, in box sizes, between where an object was heading and where it reappears. | Lower values break objects into more pieces. |
 | `SIGN_MIN_TRACK_LENGTH` | integer | `5` | Minimum number of detections for a sign track to produce an annotation. | — |
 

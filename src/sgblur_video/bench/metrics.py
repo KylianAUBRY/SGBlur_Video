@@ -1,11 +1,13 @@
 """Privacy metrics of a blur plan against human ground truth (``docs/design/testing-strategy.md``).
 
 For each ground-truth object-frame (box ``G``) and the shapes ``M`` the
-renderer blurs on that frame (rectangles, or ellipses circumscribing the box
-for faces, with their copies across the 360° seam):
+renderer blurs on that frame (rectangles, or ellipses inscribed in the box for
+faces, with their copies across the 360° seam):
 
 * **coverage** = |G ∩ M| / |G|, estimated on a grid of up to 16 × 16 points of
-  ``G`` (blurring more than needed is harmless, so this is not an IoU);
+  ``G`` (blurring more than needed is harmless, so this is not an IoU); for a
+  face, ``G`` is the ellipse inscribed in its ground-truth box (a face is oval:
+  the corners of the box are background);
 * the object-frame is **protected** when coverage ≥ ``coverage_threshold``.
 
 The metrics measure detection, tracking and post-processing. That the renderer
@@ -24,7 +26,7 @@ import numpy as np
 import numpy.typing as npt
 
 from sgblur_video.bench.dataset import GroundTruth
-from sgblur_video.core.geometry import Box, center, circumscribed_ellipse, height, width
+from sgblur_video.core.geometry import Box, center, height, inscribed_ellipse, width
 from sgblur_video.core.postprocess import BlurPlan, BlurShape
 from sgblur_video.video360.wrap import copies
 
@@ -52,7 +54,7 @@ def _boxes(shape: BlurShape, wrap_width: int | None) -> list[Box]:
 def _extent(shape_kind: str, box: Box) -> Box:
     """Bounding box of the blurred area of a shape."""
     if shape_kind == "ellipse":
-        cx, cy, rx, ry = circumscribed_ellipse(box)
+        cx, cy, rx, ry = inscribed_ellipse(box)
         return (cx - rx, cy - ry, cx + rx, cy + ry)
     return box
 
@@ -61,20 +63,23 @@ def _inside(
     shape_kind: str, box: Box, xs: npt.NDArray[np.float64], ys: npt.NDArray[np.float64]
 ) -> npt.NDArray[np.bool_]:
     if shape_kind == "ellipse":
-        cx, cy, rx, ry = circumscribed_ellipse(box)
+        cx, cy, rx, ry = inscribed_ellipse(box)
         if rx <= 0 or ry <= 0:
             return np.zeros_like(xs, dtype=np.bool_)
         return np.asarray(((xs - cx) / rx) ** 2 + ((ys - cy) / ry) ** 2 <= 1.0, dtype=np.bool_)
     return np.asarray((xs >= box[0]) & (xs <= box[2]) & (ys >= box[1]) & (ys <= box[3]), dtype=np.bool_)
 
 
-def coverage(truth: Box, shapes: Sequence[BlurShape], wrap_width: int | None = None) -> float:
+def coverage(
+    truth: Box, shapes: Sequence[BlurShape], wrap_width: int | None = None, *, oval: bool = False
+) -> float:
     """Share of a ground-truth box covered by the blurred shapes.
 
     Args:
         truth: Ground-truth box.
         shapes: Shapes blurred on the frame.
         wrap_width: Frame width of a 360° video (shapes are also blurred one turn left and right).
+        oval: Measure the ellipse inscribed in ``truth`` only (faces).
 
     Returns:
         Coverage between 0 and 1.
@@ -85,6 +90,10 @@ def coverage(truth: Box, shapes: Sequence[BlurShape], wrap_width: int | None = N
         truth[0] + (np.arange(nx) + 0.5) * width(truth) / nx,
         truth[1] + (np.arange(ny) + 0.5) * height(truth) / ny,
     )
+    if oval:
+        inside = _inside("ellipse", truth, xs, ys)
+        if inside.any():
+            xs, ys = xs[inside], ys[inside]
     covered = np.zeros_like(xs, dtype=bool)
     for shape in shapes:
         for box in _boxes(shape, wrap_width):
@@ -149,7 +158,7 @@ def _over_blur(truth: GroundTruth, plan: BlurPlan) -> float:
         for shape in shapes:
             for box in _boxes(shape, plan.wrap_width):
                 if shape.kind == "ellipse":
-                    cx, cy, rx, ry = circumscribed_ellipse(box)
+                    cx, cy, rx, ry = inscribed_ellipse(box)
                     cv2.ellipse(
                         mask,
                         (round(cx * factor), round(cy * factor)),
@@ -199,7 +208,7 @@ def evaluate_clip(
         chains: set[str] = set()
         for gt in track.boxes:
             shapes = plan.shapes(gt.frame)
-            value = coverage(gt.box, shapes, plan.wrap_width)
+            value = coverage(gt.box, shapes, plan.wrap_width, oval=track.cls == "face")
             chains |= _containing_chains(center(gt.box), shapes, plan.wrap_width)
             evaluation.object_frames.append(
                 ObjectFrame(

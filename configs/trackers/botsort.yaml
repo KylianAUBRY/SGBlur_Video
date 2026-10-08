@@ -1,0 +1,19 @@
+# Default tracker: BoT-SORT with precision-oriented thresholds (docs/adr/0013-precise-tracking.md).
+#
+# Only confident detections start or extend a track, and a lost track is kept
+# for half a second: a wrong association blurs the wrong place, so tracking
+# favours precision over continuity. `track_buffer_s` is an sgblur-video
+# extension converted to frames with the video frame rate.
+
+tracker_type: botsort
+track_high_thresh: 0.5   # first association: detections at or above this score
+track_low_thresh: 0.3    # second association down to CONF_DETECT
+new_track_thresh: 0.5    # a new track needs a confident detection
+track_buffer_s: 0.5      # seconds a lost track is kept
+match_thresh: 0.8
+fuse_score: True
+gmc_method: sparseOptFlow
+proximity_thresh: 0.5
+appearance_thresh: 0.8
+with_reid: False
+model: auto

@@ -30,11 +30,11 @@ def test_defaults_are_privacy_first() -> None:
 
 
 def test_reads_environment_without_prefix(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("CONF_BLUR", "0.2")
+    monkeypatch.setenv("CONF_BLUR", "0.5")
     monkeypatch.setenv("DETECT_URL", "http://detect:8001")
     monkeypatch.setenv("blur_method", "solid")  # case insensitive
     settings = Settings()
-    assert settings.conf_blur == pytest.approx(0.2)
+    assert settings.conf_blur == pytest.approx(0.5)
     assert str(settings.detect_url) == "http://detect:8001/"
     assert settings.blur_method is BlurMethod.SOLID
 

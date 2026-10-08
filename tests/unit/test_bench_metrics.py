@@ -20,9 +20,11 @@ def test_coverage_of_rectangles_and_ellipses() -> None:
     assert coverage(truth, [_shape((0.0, 0.0, 40.0, 40.0))]) == 1.0
     assert coverage(truth, [_shape((0.0, 0.0, 20.0, 40.0))]) == pytest.approx(0.5)
     assert coverage(truth, []) == 0.0
-    # The ellipse circumscribing a box covers the whole box, corners included.
-    assert coverage(truth, [_shape(truth, "ellipse")]) == 1.0
+    # The ellipse inscribed in a box leaves its corners out...
+    assert coverage(truth, [_shape(truth, "ellipse")]) == pytest.approx(0.785, abs=0.03)
     assert coverage(truth, [_shape((100.0, 100.0, 120.0, 120.0), "ellipse")]) == 0.0
+    # ...which a face (an oval) does not need: faces are measured on the oval of their box.
+    assert coverage(truth, [_shape(truth, "ellipse")], oval=True) == 1.0
 
 
 def test_coverage_across_the_360_seam() -> None:

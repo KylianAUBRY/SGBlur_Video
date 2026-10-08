@@ -51,14 +51,15 @@ def test_tracktrack_compensates_camera_motion(repo_root: Path) -> None:
     assert config["gmc_method"] != "none"
 
 
-def test_default_tracker_is_the_flow_tracker(repo_root: Path) -> None:
+def test_default_tracker_is_precision_oriented_botsort(repo_root: Path) -> None:
     from sgblur_video.config import Settings
-    from sgblur_video.core.track import FLOW_KEYS, load_tracker_config
+    from sgblur_video.core.track import load_tracker_config
 
-    default = Settings().tracker_config
-    assert default == Path("configs/trackers/flow.yaml")
-    config = load_tracker_config(repo_root / default, fps=30.0)
-    assert config["tracker_type"] == "flow"
-    assert set(config) <= FLOW_KEYS
-    assert config["gate"] > 0
-    assert config["track_buffer"] == 30
+    settings = Settings()
+    assert settings.tracker_config == Path("configs/trackers/botsort.yaml")
+    config = load_tracker_config(repo_root / settings.tracker_config, fps=30.0)
+    assert config["tracker_type"] == "botsort"
+    assert config["track_buffer"] == 15  # half a second: a lost track is not kept long
+    # Low-score detections only extend tracks; they never start one.
+    assert config["track_low_thresh"] == settings.conf_detect
+    assert config["new_track_thresh"] > config["track_low_thresh"]

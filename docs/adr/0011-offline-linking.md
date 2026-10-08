@@ -5,6 +5,8 @@ date: 2026-10-06
 
 # Offline linking of detections the tracker leaves alone
 
+> **Update 2026-10-08.** The linking gap is now 0.5 s, and gaps are interpolated over 0.3 s at most ([ADR-0013](0013-precise-tracking.md)).
+
 ## Context and Problem Statement
 
 The first run on a real 8K equirectangular video (Q360 camera, 90 frames)

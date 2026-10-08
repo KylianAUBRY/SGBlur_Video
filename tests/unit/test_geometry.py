@@ -1,14 +1,12 @@
 """Tests of sgblur_video.core.geometry."""
 
-import math
-
 import pytest
 
 from sgblur_video.core.geometry import (
     area,
-    circumscribed_ellipse,
     clip,
     expand,
+    inscribed_ellipse,
     iomin,
     iou,
     lerp,
@@ -36,9 +34,9 @@ def test_union_expand_clip_lerp() -> None:
     assert area((0, 0, -1, 5)) == 0.0
 
 
-def test_circumscribed_ellipse_contains_box_corners() -> None:
+def test_inscribed_ellipse_touches_the_middle_of_each_side() -> None:
     box = (10.0, 20.0, 50.0, 40.0)
-    cx, cy, rx, ry = circumscribed_ellipse(box)
-    for x, y in ((box[0], box[1]), (box[2], box[1]), (box[0], box[3]), (box[2], box[3])):
+    cx, cy, rx, ry = inscribed_ellipse(box)
+    assert (cx, cy, rx, ry) == (30.0, 30.0, 20.0, 10.0)
+    for x, y in ((box[0], cy), (box[2], cy), (cx, box[1]), (cx, box[3])):
         assert ((x - cx) / rx) ** 2 + ((y - cy) / ry) ** 2 == pytest.approx(1.0)
-    assert rx == pytest.approx(20 * math.sqrt(2))

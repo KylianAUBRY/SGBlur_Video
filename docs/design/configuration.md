@@ -38,8 +38,8 @@ leave faces/plates visible or keep personal data longer.
 | `TILE_TRIGGER_WIDTH` | int | *5760* | Long side from which the tile pass runs. | Higher ↑ risk |
 | `EQUIRECT_PAD_RATIO` | float | *0.0625* | Circular padding on each side for 360° video (fraction of width). | Lower ↑ risk at the seam |
 | `PROJECTION` | `auto`\|`flat`\|`equirectangular` | `auto` | Force the projection when metadata is missing or wrong. | Wrong value ↑ risk at the seam |
-| `CONF_DETECT` | float | *0.10* | Minimum detector score kept (also fed to trackers). | Higher ↑ risk |
-| `CONF_BLUR` | float | *0.15* | Minimum score for a `blur`-class detection to be blurred on its own (orphans included). Tracked detections below it are blurred when their track contains a detection ≥ `CONF_BLUR`. | Higher ↑ risk |
+| `CONF_DETECT` | float | *0.30* | Minimum detector score kept (also fed to trackers). | Higher ↑ risk |
+| `CONF_BLUR` | float | *0.40* | Minimum score for a `blur`-class detection to be blurred on its own (orphans included). Tracked detections below it are blurred when their track contains a detection ≥ `CONF_BLUR`. | Higher ↑ risk |
 | `CONF_SIGN` | float | *0.6* | Minimum max-score of a sign track to produce an annotation (SGBlur value). | none |
 | `DETECT_URL` | URL | empty | Remote Detect API; empty = in-process detection (SGBlur convention). | Video sent over the network: use a private network |
 
@@ -47,8 +47,9 @@ leave faces/plates visible or keep personal data longer.
 
 | Name | Type | Default | Description | Privacy impact |
 |---|---|---|---|---|
-| `TRACKER_CONFIG` | path | `configs/trackers/flow.yaml` | Optical-flow tracker, or an Ultralytics tracker YAML (+ our `track_buffer_s` extension). | Indirect (gap filling relies on ids) |
+| `TRACKER_CONFIG` | path | `configs/trackers/botsort.yaml` | BoT-SORT (precision-oriented), another Ultralytics tracker or the optical-flow tracker YAML (+ our `track_buffer_s` extension). | Indirect (gap filling relies on ids) |
 | `TRACK_WIDTH` | int | *1920* | Width of the frame used for tracking and camera-motion compensation. | — |
+| `LINK_MAX_GAP_S` | float | *0.5* | Longest interruption across which fragments of one object are linked offline. | Lower ↑ risk |
 
 ## Post-processing and blur
 
@@ -56,11 +57,11 @@ leave faces/plates visible or keep personal data longer.
 |---|---|---|---|---|
 | `BLUR_METHOD` | `pixelate_blur`\|`gaussian_strong`\|`solid` | `pixelate_blur` | Irreversible blur operation. | `gaussian_strong` weaker |
 | `PIXELATE_CELLS` | int | *6* | Max mosaic cells on the long side of a shape. | Higher ↑ risk |
-| `BLUR_BOX_MARGIN` | float | *0.10* | Enlargement of each box on each side (fraction of its size). | Lower ↑ risk |
-| `BLUR_TEMPORAL_PADDING_FRAMES` | int | *12* | Frames blurred before the first and after the last observation of a track / around an orphan. | Lower ↑ risk |
-| `BLUR_PADDING_GROWTH` | float | *0.05* | Per-frame growth of padded boxes. | Lower ↑ risk |
-| `MAX_INTERPOLATION_GAP_S` | float | *2.0* | Longest gap filled by interpolation inside a track. | Lower ↑ risk |
-| `MAX_INTERPOLATION_JUMP` | float | *20* | Largest move (box sizes) between two detections filled by interpolation. | Lower ↑ risk |
+| `BLUR_BOX_MARGIN` | float | *0.05* | Enlargement of each box on each side (fraction of its size). | Lower ↑ risk |
+| `BLUR_TEMPORAL_PADDING_FRAMES` | int | *3* | Frames blurred before the first and after the last observation of a track / around an orphan. | Lower ↑ risk |
+| `BLUR_PADDING_GROWTH` | float | *0.02* | Per-frame growth of padded boxes. | Lower ↑ risk |
+| `MAX_INTERPOLATION_GAP_S` | float | *0.3* | Longest gap filled by interpolation inside a track. | Lower ↑ risk |
+| `MAX_INTERPOLATION_JUMP` | float | *5* | Largest move (box sizes) between two detections filled by interpolation. | Lower ↑ risk |
 | `SIGN_MIN_TRACK_LENGTH` | int | *5* | Minimum observations for a sign annotation. | none |
 
 ## Encoding

@@ -5,6 +5,8 @@ date: 2026-10-06
 
 # Irreversible blur method and shapes
 
+> **Update 2026-10-08.** Faces are now blurred with the ellipse inscribed in the box, not circumscribing it ([ADR-0013](0013-precise-tracking.md)); the blur methods are unchanged.
+
 ## Context and Problem Statement
 
 A light Gaussian blur can be partially inverted (deconvolution) or defeated by

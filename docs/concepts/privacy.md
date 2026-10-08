@@ -6,23 +6,25 @@ if every other frame is perfect.** This page explains what the service does
 with personal data and where its limits are. It is not legal advice: the
 operator of an instance remains responsible for its GDPR compliance.
 
-## Recall over precision
+## Precision over recall
 
-Every design choice favours blurring too much over blurring too little
-([Tracking and post-processing](tracking.md)):
+The defaults favour blurring the right places over blurring everything that
+might be a face or a plate ([Tracking and post-processing](tracking.md),
+[ADR-0013](../adr/0013-precise-tracking.md)):
 
-- detection runs on every frame, at several scales, with tiles on 8K footage;
-- low-score detections are blurred too (`CONF_BLUR`, default 0.15), including
-  isolated ones that no tracker followed;
-- fragments of the same object are linked over gaps of up to 1 s, gaps are
-  filled by interpolation, and every chain is blurred 15 frames before its
-  first and after its last detection, with a growing box;
-- boxes get a 15 % margin and faces the ellipse circumscribing that box;
+- detection runs on every frame, at several scales, with tiles on 8K footage,
+  and keeps boxes scoring at least `CONF_DETECT` (0.30);
+- an object is blurred when one of its detections scores at least `CONF_BLUR`
+  (0.40); its weaker detections are then blurred too;
+- short misses are covered: gaps of up to 0.3 s are interpolated and every
+  chain is blurred 3 frames before its first and after its last detection;
+- boxes get a 5 % margin, faces the ellipse inscribed in that box;
 - a model that cannot detect a class configured to be blurred is refused at
   start-up ([ADR-0009](../adr/0009-model-registry-and-class-policy.md)).
 
-The cost is over-blurring: shop posters, statues or road markings mistaken for
-faces or plates are blurred as well. Traffic signs are never blurred.
+The cost is on the other side: a face or plate only detected with low scores,
+or missed for longer than these short windows, stays visible. Traffic signs are
+never blurred.
 
 ## Irreversible blur
 

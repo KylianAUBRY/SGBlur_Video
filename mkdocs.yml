@@ -108,4 +108,5 @@ nav:
       - adr/0009-model-registry-and-class-policy.md
       - adr/0010-privacy-testing-strategy.md
       - adr/0011-offline-linking.md
+      - adr/0013-precise-tracking.md
   - Licence: license.md

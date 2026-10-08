@@ -101,7 +101,7 @@ uv run sgblur-video benchmark privacy --dataset ~/sgblur-video-privacy
 
 # Compare settings: every combination is evaluated, detections are computed once.
 uv run sgblur-video benchmark privacy --dataset ~/sgblur-video-privacy \
-    --sweep CONF_BLUR=0.1,0.15,0.25 --sweep BLUR_TEMPORAL_PADDING_FRAMES=10,15
+    --sweep CONF_BLUR=0.3,0.4,0.5 --sweep BLUR_TEMPORAL_PADDING_FRAMES=3,6
 
 # Trackers on the same detections (tracking is replayed, detection runs once).
 uv run sgblur-video benchmark trackers --dataset ~/sgblur-video-privacy

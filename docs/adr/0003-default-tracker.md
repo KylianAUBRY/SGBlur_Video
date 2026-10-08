@@ -5,6 +5,8 @@ date: 2026-10-07
 
 # Default tracker: optical flow (was TrackTrack with a recall-oriented configuration)
 
+> **Update 2026-10-08.** The default tracker is now BoT-SORT with precision-oriented thresholds ([ADR-0013](0013-precise-tracking.md)); the optical-flow tracker remains available.
+
 The decision of 2026-10-06 (TrackTrack) is kept below for its measurements; it
 was replaced on 2026-10-07 by the optical-flow tracker, see
 [the last section](#optical-flow-tracker-2026-10-07).

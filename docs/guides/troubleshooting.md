@@ -18,7 +18,7 @@ affected either way: pytest adds `src/` to the import path itself.
 ## `invalid model registry models/registry.yaml: No such file or directory`
 
 The defaults of `MODELS_FILE` (`models/registry.yaml`) and `TRACKER_CONFIG`
-(`configs/trackers/flow.yaml`) are relative to the current
+(`configs/trackers/botsort.yaml`) are relative to the current
 folder. Run commands from the repository root, or set both to absolute paths
 in the environment or in a `.env` file. The Docker image sets them for you.
 

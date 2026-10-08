@@ -42,6 +42,7 @@ def settings(tmp_path: Path, repo_root: Path) -> Settings:
         models_file=repo_root / "models" / "registry.yaml",
         tracker_config=repo_root / "configs" / "trackers" / "tracktrack-recall.yaml",
         encoder="libx264",
+        conf_blur=0.3,  # blur the scenario's 0.3-score plate, so that keep=1 has a region to keep
         keep_secret_key="test-secret",
         callback_allowed_hosts=["callback.test"],
         sync_max_duration_s=10,

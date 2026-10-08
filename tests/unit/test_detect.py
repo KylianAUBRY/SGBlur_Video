@@ -68,21 +68,31 @@ def test_class_groups() -> None:
     }
 
 
-def test_merge_unions_blur_classes_and_keeps_best_sign() -> None:
+def test_merge_keeps_the_most_precise_box_never_a_union() -> None:
     raw = [
-        Detection("face", 0.4, (10, 10, 30, 30), ["g1024"]),
-        Detection("face", 0.6, (12, 12, 34, 34), ["g2048"]),
+        Detection("face", 0.6, (10, 10, 30, 30), ["g1024"]),
+        Detection("face", 0.4, (12, 12, 34, 34), ["g2048"]),  # seen at a higher resolution
         Detection("sign", 0.9, (100, 100, 140, 140), ["g2048"]),
-        Detection("direction", 0.5, (98, 98, 150, 150), ["tL"]),
+        Detection("direction", 0.5, (98, 98, 150, 150), ["g2048"]),
         Detection("plate", 0.3, (12, 12, 30, 30), ["g1024"]),  # overlaps the face but another group
         Detection("bicycle", 0.9, (0, 0, 5, 5), ["g1024"]),  # no policy: dropped
     ]
     merged = {d.cls: d for d in merge_detections(raw, DEFAULT_CLASS_POLICY)}
     assert set(merged) == {"face", "sign", "plate"}
-    assert merged["face"].box == (10, 10, 34, 34)
+    assert merged["face"].box == (12, 12, 34, 34)  # the g2048 box, not the union (10, 10, 34, 34)
     assert merged["face"].score == 0.6
     assert sorted(merged["face"].passes) == ["g1024", "g2048"]
-    assert merged["sign"].box == (100, 100, 140, 140)  # best member, not the union
+    assert merged["sign"].box == (100, 100, 140, 140)  # same precision: the best score
+
+
+def test_tiles_are_the_most_precise_pass() -> None:
+    raw = [
+        Detection("plate", 0.9, (0, 0, 100, 40), ["g2048"]),
+        Detection("plate", 0.5, (4, 2, 96, 38), ["tL"]),
+    ]
+    (merged,) = merge_detections(raw, DEFAULT_CLASS_POLICY)
+    assert merged.box == (4, 2, 96, 38)
+    assert merged.score == 0.9
 
 
 def test_merge_containment_counts_as_duplicate() -> None:

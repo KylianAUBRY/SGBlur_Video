@@ -24,7 +24,7 @@ import numpy as np
 import numpy.typing as npt
 
 from sgblur_video.core.detections_io import Detections
-from sgblur_video.core.geometry import Box, circumscribed_ellipse, iomin, iou
+from sgblur_video.core.geometry import Box, inscribed_ellipse, iomin, iou
 from sgblur_video.core.postprocess import BlurPlan, BlurShape
 from sgblur_video.video360.wrap import copies, normalize, unwrap_towards
 
@@ -127,7 +127,7 @@ def _rect_points(box: Box, factor: float) -> npt.NDArray[np.float64]:
 
 
 def _ellipse_points(box: Box, factor: float) -> npt.NDArray[np.float64]:
-    cx, cy, rx, ry = (v * factor for v in circumscribed_ellipse(box))
+    cx, cy, rx, ry = (v * factor for v in inscribed_ellipse(box))
     points = cv2.ellipse2Poly((round(cx), round(cy)), (max(1, round(rx)), max(1, round(ry))), 0, 0, 360, 6)
     return np.asarray(points, dtype=np.float64)
 

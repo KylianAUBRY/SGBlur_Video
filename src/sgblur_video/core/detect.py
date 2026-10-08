@@ -3,9 +3,10 @@
 The plan reproduces SGBlur's logic for video frames (``docs/design/pipeline.md``
 §2.2): a full-frame pass at ``imgsz=1024`` for large, close objects, a pass at
 ``imgsz=2048``, and for very large frames (8K 360°) tiles at native
-resolution. Boxes from every pass are merged per class group: blurred classes
-keep the **union** of duplicates (never shrink a blur area), annotated classes
-keep the best-scoring box.
+resolution. Boxes from every pass are merged per class group: a cluster of
+duplicates keeps the **most precise** box (the pass that saw the object at the
+highest resolution: tiles, then the largest global pass), never a union of
+boxes.
 
 The detector is behind the :class:`FrameDetector` protocol so that tests can
 replace YOLO with a scripted fake detector (privacy oracle).
@@ -21,7 +22,7 @@ import numpy as np
 import numpy.typing as npt
 
 from sgblur_video.config import ClassAction, DetectProfile
-from sgblur_video.core.geometry import Box, iomin, iou, translate, union_box
+from sgblur_video.core.geometry import Box, iomin, iou, translate
 from sgblur_video.video360.wrap import normalize, unwrap_towards
 
 logger = logging.getLogger(__name__)
@@ -175,6 +176,24 @@ def class_groups(policy: Mapping[str, ClassAction]) -> dict[str, str]:
     return {name: (name if action is ClassAction.BLUR else SIGNAGE_GROUP) for name, action in policy.items()}
 
 
+#: Precision rank of tile passes (native resolution), above every global pass size.
+TILE_PRECISION = 1_000_000
+
+
+def pass_precision(pass_id: str) -> int:
+    """How finely a pass sees objects: tiles (native resolution), then larger global passes.
+
+    Example:
+        >>> pass_precision("tL") > pass_precision("g2048") > pass_precision("g1024")
+        True
+    """
+    if pass_id.startswith("t"):
+        return TILE_PRECISION
+    if pass_id.startswith("g") and pass_id[1:].isdigit():
+        return int(pass_id[1:])
+    return 0
+
+
 def merge_detections(
     raw: Sequence[Detection],
     policy: Mapping[str, ClassAction],
@@ -187,9 +206,9 @@ def merge_detections(
 
     Boxes are processed by decreasing score; a box joins the first cluster of
     the same group it overlaps (IoU ≥ ``iou_threshold`` or IoMin ≥
-    ``iomin_threshold``). A cluster keeps the best score and class; its box is
-    the union of its members for ``blur`` classes (privacy) and the best
-    member's box for ``annotate`` classes.
+    ``iomin_threshold``). A cluster keeps the best score and class, and the box
+    of its most precise member (:func:`pass_precision`, then score): boxes are
+    never merged into a larger union box.
 
     Args:
         raw: Detections of every pass for one frame.
@@ -203,24 +222,27 @@ def merge_detections(
         Merged detections, best score first.
     """
     groups = class_groups(policy)
-    clusters: list[tuple[str, Detection, list[Box]]] = []
+    clusters: list[tuple[str, Detection, list[tuple[Box, int, float]]]] = []
     for det in sorted((d for d in raw if d.cls in groups), key=lambda d: d.score, reverse=True):
         group = groups[det.cls]
         box = normalize(det.box, wrap_width) if wrap_width else det.box
+        precision = max((pass_precision(p) for p in det.passes), default=0)
         for cluster_group, best, members in clusters:
-            candidate = unwrap_towards(box, members[0], wrap_width) if wrap_width else box
+            candidate = unwrap_towards(box, members[0][0], wrap_width) if wrap_width else box
             if cluster_group == group and any(
-                iou(candidate, m) >= iou_threshold or iomin(candidate, m) >= iomin_threshold for m in members
+                iou(candidate, m) >= iou_threshold or iomin(candidate, m) >= iomin_threshold
+                for m, _precision, _score in members
             ):
-                members.append(candidate)
+                members.append((candidate, precision, det.score))
                 best.passes.extend(p for p in det.passes if p not in best.passes)
                 break
         else:
-            clusters.append((group, Detection(det.cls, det.score, box, list(det.passes)), [box]))
+            clusters.append(
+                (group, Detection(det.cls, det.score, box, list(det.passes)), [(box, precision, det.score)])
+            )
     merged = []
     for _group, best, members in clusters:
-        if policy[best.cls] is ClassAction.BLUR:
-            best.box = union_box(members)
+        best.box = max(members, key=lambda m: (m[1], m[2]))[0]
         if wrap_width:
             best.box = normalize(best.box, wrap_width)
         merged.append(best)
