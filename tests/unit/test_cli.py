@@ -59,11 +59,9 @@ def test_config_hides_the_home_folder(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_benchmark_commands(tmp_path: Path, repo_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     result = runner.invoke(app, ["benchmark", "--help"])
     assert result.exit_code == 0
-    for command in ("privacy", "trackers", "speed"):
+    for command in ("privacy", "speed"):
         assert command in result.output
-    result = runner.invoke(app, ["benchmark", "trackers"])
-    assert result.exit_code == 1
-    assert "give --video and/or --dataset" in result.output
+    assert "trackers" not in result.output  # faces and plates are not tracked any more
     monkeypatch.setenv("MODELS_FILE", str(repo_root / "models" / "registry.yaml"))
     thresholds = str(repo_root / "benchmarks" / "privacy-thresholds.yaml")
     result = runner.invoke(

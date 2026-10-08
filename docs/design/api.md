@@ -77,7 +77,7 @@ and HTTP range support), `409 job_not_ready`, `404`, `410`.
 Only when the job was created with `debug=1` (the status then has a `links.debug`
 entry), else `404 debug_not_requested`. `200 video/mp4`: the blurred video in
 H.264, at most 1920 px wide, without audio, with every blurred region and sign
-outlined: colour = class (magenta face, yellow plate, blue sign, cyan direction sign); solid outline = detected on that frame, labelled with class, score and track number; dashed outline, without label = blurred without a detection on that frame, from the object's track (interpolated between two detections, or padded before or after them).
+outlined: colour = class (magenta face, yellow plate, blue sign, cyan direction sign); every blurred box is a detection of that frame, labelled with its class and score; signs also show their track number.
 
 ## `GET /jobs/{job_id}/metadata` {#metadata}
 
@@ -116,9 +116,9 @@ Same structure as SGBlur's `metadata` part, with documented extensions:
     "projection": "equirectangular", "telemetry": "none"
   },
   "stats": {
-    "tracks": {"face": 14, "plate": 37, "signage": 22},
-    "blurred_boxes": {"detected": 4021, "interpolated": 311, "padded": 2290, "orphan": 344},
+    "blurred_boxes": {"face": 1880, "plate": 2141},
     "frames_with_blur": 2410,
+    "signs": 22,
     "dropped_streams": [],
     "processing_s": 1212.5,
     "model": "yolo26s/0.1.0",

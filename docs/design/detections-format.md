@@ -85,8 +85,8 @@ width when it includes circular padding.
 ```json
 {"type": "frame", "index": 431, "pts": 1293000, "time": 14.367,
  "detections": [
-   {"class": "face", "score": 0.412, "box": [5120.5, 1810.0, 5161.2, 1866.4], "track_id": "face:7", "passes": ["tL"]},
-   {"class": "plate", "score": 0.183, "box": [7650.0, 2101.3, 7712.8, 2122.0], "track_id": null, "passes": ["g2048", "tR"]},
+   {"class": "face", "score": 0.412, "box": [5120.5, 1810.0, 5161.2, 1866.4], "track_id": null, "passes": ["tL"]},
+   {"class": "plate", "score": 0.383, "box": [7650.0, 2101.3, 7712.8, 2122.0], "track_id": null, "passes": ["g2048", "tR"]},
    {"class": "sign", "score": 0.874, "box": [2201.0, 1502.5, 2290.4, 1590.1], "track_id": "signage:3", "passes": ["g2048", "tL"]}
  ]}
 ```
@@ -98,8 +98,8 @@ width when it includes circular padding.
 | `time` | float | `pts × time_base − start_time`, seconds |
 | `detections[].class` | str | class name (never an index) |
 | `detections[].score` | float | detector confidence after cross-pass merge (3 decimals) |
-| `detections[].box` | float[4] | merged box (union for `blur` classes), coded-frame pixels |
-| `detections[].track_id` | str \| null | `"<group>:<id>"`, unique within the file; `null` = orphan |
+| `detections[].box` | float[4] | merged box (smallest duplicate for `blur` classes, best-scoring one for signs), coded-frame pixels |
+| `detections[].track_id` | str \| null | `"signage:<id>"` for a tracked sign; always `null` for faces and plates, which are never tracked |
 | `detections[].passes` | str[] | passes that produced the merged box (debugging, benchmark) |
 
 Frames without detections are still written (`"detections": []`) so that the
@@ -109,7 +109,7 @@ frame count and timestamps can be checked against the video in pass 2.
 
 ```json
 {"type": "footer", "frames": 2893, "complete": true, "elapsed_s": 958.2,
- "counts": {"face": 812, "plate": 2210, "sign": 1505, "direction": 12, "orphans": 344}}
+ "counts": {"face": 812, "plate": 2210, "sign": 1505, "direction": 12}}
 ```
 
 `complete: false` is written when analysis stops early (cancel, CLI

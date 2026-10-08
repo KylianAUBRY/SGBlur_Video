@@ -36,7 +36,6 @@ def _privacy(report: dict[str, Any]) -> list[str]:
                 "tracks ever leaked": f"{summary['tracks_ever_leaked']}/{summary['tracks']}",
                 "longest exposure (readable)": summary["longest_exposure_frames_readable"],
                 "transient": summary["transient_exposures"],
-                "chains/track": summary["mean_chains_per_track"],
                 "over-blur": _pct(summary["over_blur_ratio"]),
             }
         )
@@ -76,12 +75,6 @@ def to_markdown(report: dict[str, Any]) -> str:
     ]
     if kind == "privacy":
         lines += _privacy(report)
-    elif kind == "trackers":
-        rows = report["rows"]
-        columns = [c for c in rows[0] if c not in ("by_class",)] if rows else []
-        for row in rows[1:]:
-            columns += [c for c in row if c not in columns]
-        lines += _table(rows, columns)
     elif kind == "speed":
         video = report["video"]
         lines += [

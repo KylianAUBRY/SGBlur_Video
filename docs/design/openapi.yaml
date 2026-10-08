@@ -245,9 +245,9 @@ paths:
       operationId: getJobDebugVideo
       description: |
         The blurred video (H.264, at most 1920 px wide, no audio) with every blurred region and sign
-        outlined. Colour = class (face magenta, plate yellow, sign blue, direction sign cyan); solid
-        outline = detected on that frame (label: class, score, track number); dashed outline =
-        blurred without a detection on that frame (`interpolated` or `padded` from the track).
+        outlined. Colour = class (face magenta, plate yellow, sign blue, direction sign cyan); every
+        blurred box is a detection of that frame (label: class and score; signs also show their
+        track number).
       responses:
         "200":
           description: Debug video.
@@ -304,9 +304,9 @@ paths:
                   projection: equirectangular
                   telemetry: none
                 stats:
-                  tracks: {face: 14, plate: 37, signage: 22}
-                  blurred_boxes: {detected: 4021, interpolated: 311, padded: 2290, orphan: 344}
+                  blurred_boxes: {face: 1880, plate: 2141}
                   frames_with_blur: 2410
+                  signs: 22
                   dropped_streams: []
                   processing_s: 1212.5
                   model: yolo26s/0.1.0

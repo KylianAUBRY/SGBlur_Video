@@ -15,8 +15,8 @@ Each field carries two documentation hints in ``json_schema_extra``:
 
 Example:
     >>> from sgblur_video.config import Settings
-    >>> Settings(conf_blur=0.2).conf_blur
-    0.2
+    >>> Settings(conf_detect=0.4).conf_detect
+    0.4
 """
 
 from enum import StrEnum
@@ -223,28 +223,16 @@ class Settings(BaseSettings):
         json_schema_extra=_doc("Detection", "A wrong value breaks seam handling on 360° videos."),
     )
     conf_detect: float = Field(
-        0.10,
-        ge=0.0,
-        le=1.0,
-        description="Minimum detector score kept (and fed to the trackers).",
-        json_schema_extra=_doc("Detection", "Higher values miss more objects."),
-    )
-    conf_blur: float = Field(
-        0.15,
+        0.30,
         ge=0.0,
         le=1.0,
         description=(
-            "Score from which a face/plate detection is blurred on its own; lower-score detections are "
-            "blurred when their track contains a detection at or above it."
+            "Minimum detector score kept (SGBlur value). Every face and plate detection kept is blurred "
+            "on its frame."
         ),
-        json_schema_extra=_doc("Detection", "Higher values leave more faces and plates visible."),
-    )
-    conf_sign: float = Field(
-        0.6,
-        ge=0.0,
-        le=1.0,
-        description="Minimum best score of a sign track to produce an annotation (SGBlur value).",
-        json_schema_extra=_doc("Detection"),
+        json_schema_extra=_doc(
+            "Detection", "Higher values leave more faces and plates visible; lower values blur more noise."
+        ),
     )
     detect_url: HttpUrl | None = Field(
         None,
@@ -252,99 +240,63 @@ class Settings(BaseSettings):
         json_schema_extra=_doc("Detection", "Videos are sent over the network: use a private network."),
     )
 
-    # --- Tracking ---------------------------------------------------------------------------
+    # --- Signs (tracking never affects blurring) -------------------------------------------
     tracker_config: Path = Field(
         Path("configs/trackers/flow.yaml"),
         description=(
-            "Tracker YAML: the optical-flow tracker (`flow.yaml`) or an Ultralytics tracker "
-            "(plus the `track_buffer_s` extension)."
+            "Tracker YAML for signs (one annotation per physical sign): the optical-flow tracker "
+            "(`flow.yaml`) or an Ultralytics tracker (plus the `track_buffer_s` extension)."
         ),
-        json_schema_extra=_doc("Tracking", "Gap filling relies on track continuity."),
+        json_schema_extra=_doc("Signs"),
     )
     track_width: int = Field(
         1920,
         ge=320,
-        description="Width of the frame used for tracking and camera-motion compensation.",
-        json_schema_extra=_doc("Tracking"),
+        description="Width of the frame used for sign tracking and camera-motion compensation.",
+        json_schema_extra=_doc("Signs"),
+    )
+    conf_sign: float = Field(
+        0.6,
+        ge=0.0,
+        le=1.0,
+        description="Minimum best score of a sign track to produce an annotation (SGBlur value).",
+        json_schema_extra=_doc("Signs"),
+    )
+    link_max_gap_s: float = Field(
+        1.0,
+        ge=0.0,
+        description=(
+            "Longest interruption, in seconds, across which detections of one sign are linked offline."
+        ),
+        json_schema_extra=_doc("Signs"),
+    )
+    link_max_distance: float = Field(
+        1.0,
+        gt=0.0,
+        description=(
+            "Maximum distance, in box sizes, between where a sign was heading and where it reappears."
+        ),
+        json_schema_extra=_doc("Signs"),
+    )
+    sign_min_track_length: int = Field(
+        5,
+        ge=1,
+        description="Minimum number of detections for a sign track to produce an annotation.",
+        json_schema_extra=_doc("Signs"),
     )
 
-    # --- Post-processing and blur -----------------------------------------------------------
+    # --- Blur --------------------------------------------------------------------------------
     blur_method: BlurMethod = Field(
         BlurMethod.PIXELATE_BLUR,
         description="Irreversible blur operation: `pixelate_blur`, `gaussian_strong` or `solid`.",
-        json_schema_extra=_doc("Post-processing and blur", "`gaussian_strong` is the weakest option."),
+        json_schema_extra=_doc("Blur", "`gaussian_strong` is the weakest option."),
     )
     pixelate_cells: int = Field(
         6,
         ge=2,
         le=32,
         description="Maximum number of mosaic cells on the long side of a blurred shape.",
-        json_schema_extra=_doc("Post-processing and blur", "More cells keep more identity information."),
-    )
-    blur_box_margin: float = Field(
-        0.10,
-        ge=0.0,
-        le=1.0,
-        description="Enlargement of each box on each side, as a fraction of its width/height.",
-        json_schema_extra=_doc("Post-processing and blur", "Lower values may leave edges visible."),
-    )
-    blur_temporal_padding_frames: int = Field(
-        12,
-        ge=0,
-        description="Frames blurred before the first and after the last detection of a track or orphan.",
-        json_schema_extra=_doc("Post-processing and blur", "Lower values expose objects at track ends."),
-    )
-    blur_padding_growth: float = Field(
-        0.05,
-        ge=0.0,
-        le=1.0,
-        description="Per-frame growth of padded boxes, to absorb motion uncertainty.",
-        json_schema_extra=_doc("Post-processing and blur", "Lower values may miss moving objects."),
-    )
-    max_interpolation_gap_s: float = Field(
-        2.0,
-        ge=0.0,
-        description="Longest gap inside a track that is filled by interpolation, in seconds.",
-        json_schema_extra=_doc("Post-processing and blur", "Lower values leave gaps unblurred."),
-    )
-    max_interpolation_jump: float = Field(
-        20.0,
-        gt=0.0,
-        description=(
-            "Largest move, in box sizes, between two detections of a track that is filled by "
-            "interpolation (larger jumps are two objects tracked as one)."
-        ),
-        json_schema_extra=_doc(
-            "Post-processing and blur",
-            "Lower values leave fast objects unblurred between detections; "
-            "higher values sweep blur across the frame.",
-        ),
-    )
-    link_max_gap_s: float = Field(
-        1.0,
-        ge=0.0,
-        description=(
-            "Longest interruption, in seconds, across which detections of one object are linked offline "
-            "(flickering small objects)."
-        ),
-        json_schema_extra=_doc(
-            "Post-processing and blur",
-            "Lower values break objects into more pieces (more padding, not less blur).",
-        ),
-    )
-    link_max_distance: float = Field(
-        1.0,
-        gt=0.0,
-        description=(
-            "Maximum distance, in box sizes, between where an object was heading and where it reappears."
-        ),
-        json_schema_extra=_doc("Post-processing and blur", "Lower values break objects into more pieces."),
-    )
-    sign_min_track_length: int = Field(
-        5,
-        ge=1,
-        description="Minimum number of detections for a sign track to produce an annotation.",
-        json_schema_extra=_doc("Post-processing and blur"),
+        json_schema_extra=_doc("Blur", "More cells keep more identity information."),
     )
     # --- Encoding ---------------------------------------------------------------------------
     encoder: Encoder = Field(
@@ -401,9 +353,7 @@ class Settings(BaseSettings):
         0.5,
         ge=0.0,
         le=1.0,
-        description=(
-            "Only regions of tracks whose best score is below this are kept (likely false positives)."
-        ),
+        description=("Only regions detected with a score below this are kept (likely false positives)."),
         json_schema_extra=_doc("Jobs, storage and limits", "Higher values keep more original pixels."),
     )
     max_upload_bytes: int = Field(
@@ -486,9 +436,6 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def _check_consistency(self) -> Self:
         """Reject combinations that would silently weaken privacy."""
-        if self.conf_detect > self.conf_blur:
-            msg = "CONF_DETECT must be lower than or equal to CONF_BLUR, otherwise blur candidates are lost."
-            raise ValueError(msg)
         if ClassAction.BLUR not in self.class_policy.values():
             msg = "CLASS_POLICY must contain at least one class with action 'blur'."
             raise ValueError(msg)

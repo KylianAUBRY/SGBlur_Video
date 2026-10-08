@@ -2,7 +2,7 @@
 # Tighten them as the annotated dataset grows; never loosen without an ADR.
 
 synthetic_oracle:
-  # Objects reported at least once by the scripted fake detector.
+  # Face and plate detections (score >= CONF_DETECT) left sharp on their frame.
   max_leaked_object_frames: 0
   # Frames where a sign (not overlapping a face or plate) lost its texture.
   max_blurred_sign_frames: 0

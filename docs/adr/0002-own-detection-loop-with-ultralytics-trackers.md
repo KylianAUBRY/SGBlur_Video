@@ -5,6 +5,8 @@ date: 2026-10-06
 
 # Own detection loop driving Ultralytics tracker classes
 
+> **Update 2026-10-08.** Since [ADR-0012](0012-independent-frames.md), only signs are tracked: faces and plates are blurred frame by frame.
+
 ## Context and Problem Statement
 
 The project brief suggests `model.track(..., persist=True, stream=True)`.

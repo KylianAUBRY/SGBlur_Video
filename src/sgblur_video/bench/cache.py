@@ -5,12 +5,12 @@ every ``detections.jsonl`` they compute, keyed by what influences it:
 
 * the **detection key** (model checksum, profile, ``CONF_DETECT``, tiling and
   360° padding, class policy, frame limit) names the detections themselves;
-* the **tracking key** (tracker YAML content, ``TRACK_WIDTH``) names the track ids.
+* the **tracking key** (tracker YAML content, ``TRACK_WIDTH``) names the sign track ids.
 
-Comparing trackers then only re-runs tracking on the cached detections
-(:func:`retrack`): the merged boxes are identical, only the ids change, exactly
-as if the analysis had run with the other tracker. Comparing post-processing
-settings (``CONF_BLUR``, padding, linking…) reuses the file as is.
+Changing the sign tracker only re-runs tracking on the cached detections
+(:func:`retrack`): the merged boxes are identical, only the sign ids change,
+exactly as if the analysis had run with the other tracker. Faces and plates are
+never tracked.
 """
 
 import hashlib
@@ -24,7 +24,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from sgblur_video.config import Settings
+from sgblur_video.config import ClassAction, Settings
 from sgblur_video.core.analyze import ProgressCallback, analyze
 from sgblur_video.core.decode import iter_frames, to_bgr
 from sgblur_video.core.detect import Detection, class_groups
@@ -149,7 +149,7 @@ def retrack(
     *,
     progress: ProgressCallback | None = None,
 ) -> None:
-    """Assign new track ids to cached detections with another tracker configuration.
+    """Assign new sign track ids to cached detections with another tracker configuration.
 
     The video is decoded again because trackers with camera-motion compensation
     need the frames (at ``TRACK_WIDTH``, like during analysis).
@@ -164,12 +164,9 @@ def retrack(
     tracker_config = load_tracker_config(settings.tracker_config, info.fps)
     factor = min(1.0, settings.track_width / info.width)
     track_size = (max(2, round(info.width * factor)), max(2, round(info.height * factor)))
-    trackers = GroupTrackers(
-        tracker_config,
-        class_groups(settings.class_policy),
-        track_size,
-        wrap=info.projection == "equirectangular",
-    )
+    annotate = settings.classes_with(ClassAction.ANNOTATE)
+    groups = {name: group for name, group in class_groups(settings.class_policy).items() if name in annotate}
+    trackers = GroupTrackers(tracker_config, groups, track_size, wrap=info.projection == "equirectangular")
     header = base.header.model_copy(
         update={
             "tracking": {
@@ -196,7 +193,6 @@ def retrack(
             )
             trackers.update(detections, small, factor)
             counts.update(d.cls for d in detections)
-            counts["orphans"] += sum(1 for d in detections if d.track_id is None)
             writer.write_frame(
                 FrameRecord(
                     index=record.index,

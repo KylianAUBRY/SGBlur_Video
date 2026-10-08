@@ -1,28 +1,27 @@
 # Privacy and GDPR
 
 Street-level videos film people who did not consent. SGBlur-Video exists to
-protect them: **a face or a plate left visible on one frame is a failure, even
-if every other frame is perfect.** This page explains what the service does
+protect them by blurring every face and plate the model detects, frame by
+frame, like SGBlur does for pictures. This page explains what the service does
 with personal data and where its limits are. It is not legal advice: the
 operator of an instance remains responsible for its GDPR compliance.
 
-## Recall over precision
+## Each frame like a picture
 
-Every design choice favours blurring too much over blurring too little
-([Tracking and post-processing](tracking.md)):
+Every frame is blurred on its own detections, with SGBlur's rules
+([Frame-by-frame blurring](tracking.md),
+[ADR-0012](../adr/0012-independent-frames.md)):
 
 - detection runs on every frame, at several scales, with tiles on 8K footage;
-- low-score detections are blurred too (`CONF_BLUR`, default 0.15), including
-  isolated ones that no tracker followed;
-- fragments of the same object are linked over gaps of up to 1 s, gaps are
-  filled by interpolation, and every chain is blurred 15 frames before its
-  first and after its last detection, with a growing box;
-- boxes get a 15 % margin and faces the ellipse circumscribing that box;
+- every face and plate detected with a score of at least `CONF_DETECT` (0.30,
+  SGBlur's value) is blurred with a rectangle on its box;
 - a model that cannot detect a class configured to be blurred is refused at
   start-up ([ADR-0009](../adr/0009-model-registry-and-class-policy.md)).
 
-The cost is over-blurring: shop posters, statues or road markings mistaken for
-faces or plates are blurred as well. Traffic signs are never blurred.
+The limit is the detector: a face or plate it misses on a frame stays visible
+on that frame, as on a picture blurred by SGBlur. Shop posters, statues or road
+markings mistaken for faces or plates are blurred. Traffic signs are never
+blurred.
 
 ## Irreversible blur
 
@@ -50,8 +49,8 @@ end of the command.
 
 Panoramax can ask a blurring service to keep the original pixels of blurred
 regions, so that a false positive (a sign blurred as a plate) can be
-un-blurred later. SGBlur-Video only keeps regions of chains whose best score is
-below `KEEP_MAX_CONFIDENCE` (likely false positives). Unlike SGBlur, these
+un-blurred later. SGBlur-Video only keeps regions detected with a score below
+`KEEP_MAX_CONFIDENCE` (likely false positives), like SGBlur. Unlike SGBlur, these
 crops are:
 
 - encrypted with AES-256-GCM, with a key derived from the server secret

@@ -13,15 +13,14 @@ and returns **one Panoramax annotation per physical traffic sign**.
 > validation on annotated real footage is in progress. Review the output before
 > publishing it, and do not run it in production yet.
 
-## Why video needs more than per-frame blurring
+## SGBlur, frame by frame
 
-A face blurred on 299 frames and visible on one frame is a privacy failure.
-SGBlur-Video therefore:
+SGBlur-Video cuts a video into frames, blurs **each frame as an independent
+picture** with SGBlur's rules, and re-assembles the video
+([ADR-0012](docs/adr/0012-independent-frames.md)). It:
 
-- detects on **every** frame, at several scales (and in tiles for 8K 360° footage);
-- **tracks** objects over time and blurs the frames where the detector missed them (gap interpolation);
-- blurs a few frames **before and after** each track, with a safety margin around every box;
-- blurs **untracked low-score detections** too: recall beats precision;
+- detects on **every** frame, at several scales (and in tiles for 8K 360° footage), like SGBlur;
+- blurs every face and plate detected on a frame (score ≥ 0.30) with a rectangle on its box, and nothing else: no tracking or padding, so a frame where the model misses an object leaves it visible, as on a picture;
 - uses an **irreversible** blur (mosaic + blur, or solid fill), never a light Gaussian;
 - **never blurs traffic signs**: they are deduplicated per physical sign and returned as semantic annotations (`osm|traffic_sign=yes`, same tags as SGBlur);
 - keeps no original video once processing ends, even on failure.
@@ -30,9 +29,9 @@ SGBlur-Video therefore:
 
 ```mermaid
 flowchart LR
-    v[/Video/] --> a["Pass 1: decode → YOLO26 (multi-scale) → tracking"]
+    v[/Video/] --> a["Pass 1: decode → YOLO26 (multi-scale) → sign tracking"]
     a --> j[/detections.jsonl/]
-    j --> p["Post-processing: gap filling, padding, margins, sign dedup"]
+    j --> p["Blur plan (each frame's own detections), sign dedup"]
     p --> r["Pass 2: decode → blur → encode → remux audio, GPS, 360° metadata"]
     r --> o[/Blurred video + annotations/]
 ```

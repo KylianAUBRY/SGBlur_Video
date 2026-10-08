@@ -4,8 +4,8 @@ The plan reproduces SGBlur's logic for video frames (``docs/design/pipeline.md``
 §2.2): a full-frame pass at ``imgsz=1024`` for large, close objects, a pass at
 ``imgsz=2048``, and for very large frames (8K 360°) tiles at native
 resolution. Boxes from every pass are merged per class group: blurred classes
-keep the **union** of duplicates (never shrink a blur area), annotated classes
-keep the best-scoring box.
+follow SGBlur (duplicates above IoU 0.33 or nested, the **smallest** box is
+kept), annotated classes keep the best-scoring box.
 
 The detector is behind the :class:`FrameDetector` protocol so that tests can
 replace YOLO with a scripted fake detector (privacy oracle).
@@ -21,13 +21,16 @@ import numpy as np
 import numpy.typing as npt
 
 from sgblur_video.config import ClassAction, DetectProfile
-from sgblur_video.core.geometry import Box, iomin, iou, translate, union_box
+from sgblur_video.core.geometry import Box, area, iomin, iou, translate
 from sgblur_video.video360.wrap import normalize, unwrap_towards
 
 logger = logging.getLogger(__name__)
 
 #: Group of every ``annotate`` class (signs and direction signs share one tracker).
 SIGNAGE_GROUP = "signage"
+
+#: SGBlur's duplicate test for blurred classes: IoU above this, or one box inside the other.
+BLUR_MERGE_IOU = 0.33
 
 
 @dataclass(frozen=True)
@@ -60,7 +63,8 @@ class Detection:
         score: Best confidence among merged boxes.
         box: Merged box in coded-frame pixels.
         passes: Passes that produced the merged boxes.
-        track_id: ``"<group>:<id>"`` once the tracker has matched it, else ``None`` (orphan).
+        track_id: ``"signage:<id>"`` once the sign tracker has matched it, else ``None`` (faces and
+            plates are never tracked).
     """
 
     cls: str
@@ -162,11 +166,11 @@ def build_plan(
 
 
 def class_groups(policy: Mapping[str, ClassAction]) -> dict[str, str]:
-    """Map each class name to its tracking group.
+    """Map each class name to its merge (and, for signs, tracking) group.
 
-    Each ``blur`` class is its own group (a face track must never continue as a
-    plate); every ``annotate`` class shares the ``signage`` group (the model can
-    hesitate between ``sign`` and ``direction`` on the same object).
+    Each ``blur`` class is its own group (a face box is never merged with a
+    plate box); every ``annotate`` class shares the ``signage`` group (the model
+    can hesitate between ``sign`` and ``direction`` on the same object).
 
     Example:
         >>> class_groups({"face": ClassAction.BLUR, "sign": ClassAction.ANNOTATE})
@@ -186,15 +190,18 @@ def merge_detections(
     """Merge duplicate boxes from several passes, per class group.
 
     Boxes are processed by decreasing score; a box joins the first cluster of
-    the same group it overlaps (IoU ≥ ``iou_threshold`` or IoMin ≥
-    ``iomin_threshold``). A cluster keeps the best score and class; its box is
-    the union of its members for ``blur`` classes (privacy) and the best
-    member's box for ``annotate`` classes.
+    the same group it overlaps. A cluster keeps the best score and class.
+
+    * ``blur`` classes follow SGBlur: two boxes are duplicates when their IoU
+      exceeds ``BLUR_MERGE_IOU`` or one is inside the other (IoMin ≥
+      ``iomin_threshold``), and the cluster keeps its **smallest** box.
+    * ``annotate`` classes: duplicates when IoU ≥ ``iou_threshold`` or IoMin ≥
+      ``iomin_threshold``; the cluster keeps the best member's box.
 
     Args:
         raw: Detections of every pass for one frame.
         policy: Class policy (classes absent from it are dropped).
-        iou_threshold: IoU above which two boxes are duplicates.
+        iou_threshold: IoU above which two sign boxes are duplicates.
         iomin_threshold: Intersection over the smaller area above which two boxes are duplicates.
         wrap_width: Frame width of a 360° video: boxes are compared across the 0°/360° seam and
             returned with ``0 <= x1 < width``.
@@ -209,8 +216,11 @@ def merge_detections(
         box = normalize(det.box, wrap_width) if wrap_width else det.box
         for cluster_group, best, members in clusters:
             candidate = unwrap_towards(box, members[0], wrap_width) if wrap_width else box
+            blurred = policy[det.cls] is ClassAction.BLUR
             if cluster_group == group and any(
-                iou(candidate, m) >= iou_threshold or iomin(candidate, m) >= iomin_threshold for m in members
+                (iou(candidate, m) > BLUR_MERGE_IOU if blurred else iou(candidate, m) >= iou_threshold)
+                or iomin(candidate, m) >= iomin_threshold
+                for m in members
             ):
                 members.append(candidate)
                 best.passes.extend(p for p in det.passes if p not in best.passes)
@@ -220,7 +230,7 @@ def merge_detections(
     merged = []
     for _group, best, members in clusters:
         if policy[best.cls] is ClassAction.BLUR:
-            best.box = union_box(members)
+            best.box = min(members, key=area)
         if wrap_width:
             best.box = normalize(best.box, wrap_width)
         merged.append(best)

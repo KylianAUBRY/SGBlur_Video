@@ -7,16 +7,16 @@ uv run sgblur-video models download yolo26s   # once: downloads and verifies the
 uv run sgblur-video blur my-video.mp4 blurred.mp4 --debug --frames-dir frames/
 ```
 
-- `blurred.mp4`: faces and plates blurred on every frame; audio, GoPro GPS
+- `blurred.mp4`: faces and plates detected on each frame blurred; audio, GoPro GPS
   telemetry and 360° metadata kept;
 - `blurred.metadata.json`: one Panoramax annotation per traffic sign
   ([Annotations and Panoramax](../concepts/annotations.md));
 - `blurred.debug.mp4`: the same video with every blurred region and every sign
-  outlined (see [Tracking and post-processing](../concepts/tracking.md));
+  outlined (see [Frame-by-frame blurring](../concepts/tracking.md));
 - `frames/`: the best view of each sign as a blurred JPEG, with `frames.json`.
 
 Try the first seconds of a long video with `--max-frames 90`. Settings come
-from environment variables, e.g. `CONF_BLUR=0.1 uv run sgblur-video blur …`
+from environment variables, e.g. `CONF_DETECT=0.2 uv run sgblur-video blur …`
 ([configuration](../reference/configuration.md)).
 
 On an Apple M4 Pro (MPS), end-to-end processing (analysis and rendering) runs

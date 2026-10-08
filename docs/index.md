@@ -31,7 +31,7 @@ flowchart LR
 | Install it and blur a first video | [Installation](getting-started/installation.md), [Quick start](getting-started/quickstart.md) |
 | Use it from a terminal or a script | [Command line](usage/cli.md) |
 | Run it as a service | [HTTP API](usage/api.md), [Installation § Docker](getting-started/installation.md#docker) |
-| Understand what is blurred and why | [Tracking and post-processing](concepts/tracking.md) |
+| Understand what is blurred and why | [Frame-by-frame blurring](concepts/tracking.md) |
 | Understand the design | [Architecture](design/architecture.md), [Pipeline](design/pipeline.md), [ADRs](adr/README.md) |
 | Configure the service | [Configuration reference](reference/configuration.md) |
 | Integrate with Panoramax | [HTTP API contract](design/api.md), [Annotations](concepts/annotations.md) |

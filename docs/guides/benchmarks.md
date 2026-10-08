@@ -1,12 +1,11 @@
 # Benchmarks and the privacy dataset
 
-Three benchmarks back the default settings (method and metrics:
+Two benchmarks back the default settings (method and metrics:
 [testing strategy](../design/testing-strategy.md)):
 
 | Command | Measures | Needs |
 |---|---|---|
 | `sgblur-video benchmark privacy` | Leakage of faces and plates against human annotation, gated by `benchmarks/privacy-thresholds.yaml` | The annotated dataset |
-| `sgblur-video benchmark trackers` | Tracker fragmentation (and leakage on annotated clips), on the same detections | Any video and/or the dataset |
 | `sgblur-video benchmark speed` | Detection time per model, device and detection profile | Any video |
 
 Reports print as Markdown and, with `--report-dir`, are also written as JSON
@@ -99,13 +98,9 @@ writes `ground_truth.json`.
 # Leakage with the current settings; exit code 1 if the gate fails.
 uv run sgblur-video benchmark privacy --dataset ~/sgblur-video-privacy
 
-# Compare settings: every combination is evaluated, detections are computed once.
+# Compare settings: every combination is evaluated.
 uv run sgblur-video benchmark privacy --dataset ~/sgblur-video-privacy \
-    --sweep CONF_BLUR=0.1,0.15,0.25 --sweep BLUR_TEMPORAL_PADDING_FRAMES=10,15
-
-# Trackers on the same detections (tracking is replayed, detection runs once).
-uv run sgblur-video benchmark trackers --dataset ~/sgblur-video-privacy
-uv run sgblur-video benchmark trackers --video ride.mp4 --max-frames 300
+    --sweep CONF_DETECT=0.2,0.3 --sweep DETECT_PROFILE=standard,thorough
 
 # Speed of models, devices and profiles.
 uv run sgblur-video benchmark speed ride.mp4 --model yolo26s --model yolo11s \
@@ -113,10 +108,9 @@ uv run sgblur-video benchmark speed ride.mp4 --model yolo26s --model yolo11s \
 ```
 
 Detections are cached by what changes them (model checksum, profile,
-`CONF_DETECT`, tiling, class policy) and track ids by the tracker
-configuration, under `<dataset>/cache/` for clips and
-`~/.cache/sgblur-video/bench/` for other videos. Sweeping post-processing
-settings (`CONF_BLUR`, padding, margins, linking) is therefore almost instant.
+`CONF_DETECT`, tiling, class policy) and sign track ids by the tracker
+configuration, under `<dataset>/cache/`: a run with the same detection
+settings is almost instant.
 
 ## Reading the privacy report
 
@@ -126,12 +120,11 @@ settings (`CONF_BLUR`, padding, margins, linking) is therefore almost instant.
 | readable leakage | Same, for frames ticked `readable`: the gated number (≤ 1 %). |
 | tracks ever leaked | Ground-truth objects with at least one unprotected frame. |
 | longest exposure (readable) | Longest run of consecutive unprotected readable frames (gate: ≤ 3). |
-| transient | Unprotected frames with protection within ⅓ s before and after: what tracking and padding should remove. |
-| chains/track | Blur chains covering one ground-truth object (1 = followed as a single object). |
+| transient | Unprotected frames with protection within ⅓ s before and after: one-off misses of the detector, seen as a flicker. |
 | over-blur | Share of the frame blurred outside every ground-truth box (cost, not gated). |
 
-The benchmark measures detection, tracking and post-processing on the blur
-*plan*. That the renderer really destroys the pixels of every planned region is
+The benchmark measures detection and the blur *plan* (every frame blurred on
+its own detections, [ADR-0012](../adr/0012-independent-frames.md)). That the renderer really destroys the pixels of every planned region is
 checked by the synthetic oracle on every push (`tests/privacy`).
 
 Any change to a privacy-related default must come with the privacy report

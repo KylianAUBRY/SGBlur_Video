@@ -198,7 +198,7 @@ def run_job(job_id: str, settings: Settings, store: JobStore | None = None) -> b
             frames_dir=paths.frames if job.params.get("frames") else None,
             progress=progress,
             region_sink_factory=(
-                (lambda plan: KeepRecorder(plan.chain_scores, settings.keep_max_confidence)) if keep else None
+                (lambda _plan: KeepRecorder(settings.keep_max_confidence)) if keep else None
             ),
             blurring_id=blurring_id,
         )

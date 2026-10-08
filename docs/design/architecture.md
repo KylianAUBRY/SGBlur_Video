@@ -63,16 +63,14 @@ flowchart TD
     subgraph p1["Pass 1 — Analysis (GPU/MPS/CPU)"]
         dec1["Decode frame (PyAV)"] --> plan["Detection plan<br/>global passes + tiles<br/>(+ circular padding for 360°)"]
         plan --> yolo["YOLO inference per pass"]
-        yolo --> merge["Cross-pass merge<br/>(privacy-preserving union for blur classes)"]
-        merge --> trk["Trackers per class group<br/>face · plate · signage"]
+        yolo --> merge["Cross-pass merge<br/>(smallest duplicate for blur classes, as SGBlur)"]
+        merge --> trk["Sign tracker<br/>(signage only)"]
         trk --> jsonl[/"detections.jsonl"/]
     end
     jsonl --> pp
-    subgraph pp["Post-processing (pure Python, no GPU)"]
-        stitch["Offline linking of fragments<br/>(wrap-aware on 360°)"] --> gaps["Gap interpolation"]
-        gaps --> pad["Temporal padding<br/>+ spatial margin"]
-        pad --> plan2["Blur plan per frame"]
-        stitch --> signs["Sign deduplication<br/>→ one annotation per track"]
+    subgraph pp["Blur plan and annotations (pure Python, no GPU)"]
+        plan2["Blur plan per frame<br/>(each frame's own detections)"]
+        stitch["Sign linking<br/>(wrap-aware on 360°)"] --> signs["Sign deduplication<br/>→ one annotation per sign"]
     end
     plan2 --> p2
     subgraph p2["Pass 2 — Rendering (CPU + hardware encoder)"]
@@ -86,12 +84,13 @@ flowchart TD
     boxes --> out[/"Blurred video"/]
 ```
 
-Why two passes ([ADR-0001](../adr/0001-two-pass-architecture.md)):
-tracks are only complete once the whole video has been seen. Gap filling
-needs the *next* observation, and temporal padding before a track starts needs
-to know where it starts. A single streaming pass could only pad backwards with
-a frame buffer. The intermediate `detections.jsonl` file also lets us re-render
-without re-detecting, debug a job offline, and unit-test post-processing on CPU.
+Why two passes ([ADR-0001](../adr/0001-two-pass-architecture.md)): sign
+tracks are only complete once the whole video has been seen (one annotation
+per sign, on its best frame). Blurring itself only needs each frame's own
+detections ([ADR-0012](../adr/0012-independent-frames.md)). The intermediate
+`detections.jsonl` file also lets us re-render without re-detecting (to change
+`CONF_DETECT` or the blur method, say), debug a job offline, and unit-test the
+blur plan on CPU.
 
 Details of each stage are in [pipeline.md](pipeline.md); the intermediate file
 format is in [detections-format.md](detections-format.md).
@@ -189,7 +188,7 @@ Consequences:
 | Concern | Choice | Reference |
 |---|---|---|
 | Language/runtime | Python 3.14 (`requires-python >= 3.14`) | Newest CPython with wheels for torch 2.14, PyAV 19, OpenCV 5 (checked) |
-| Detection & tracking | `ultralytics` (pinned exactly), tracker classes used directly | [ADR-0002](../adr/0002-own-detection-loop-with-ultralytics-trackers.md), [ADR-0003](../adr/0003-default-tracker.md) |
+| Detection & sign tracking | `ultralytics` (pinned exactly), tracker classes used directly | [ADR-0002](../adr/0002-own-detection-loop-with-ultralytics-trackers.md), [ADR-0003](../adr/0003-default-tracker.md), [ADR-0012](../adr/0012-independent-frames.md) |
 | Model | SGBlur `yolo26s_panoramax.pt`, downloaded and hash-checked, never committed | [ADR-0009](../adr/0009-model-registry-and-class-policy.md) |
 | Video I/O | PyAV for decode/encode/mux, custom MP4 box editor | [ADR-0008](../adr/0008-video-io-and-metadata-preservation.md) |
 | Jobs | SQLite + worker processes, no Redis | [ADR-0005](../adr/0005-job-queue.md) |
@@ -204,11 +203,12 @@ Consequences:
 src/sgblur_video/
 ├── api/          blur_api.py, detect_api.py, upload.py (streamed multipart),
 │                 errors.py, metrics.py (Prometheus)
-├── core/         probe.py, decode.py, device.py, detect.py, track.py, analyze.py (pass 1),
-│                 detections_io.py, postprocess.py, encode.py, render.py (pass 2),
-│                 debug.py, frames.py (best frames), mp4boxes.py, geometry.py, pipeline.py
-├── privacy/      blur.py (methods & shapes), keep.py (encrypted regions)
-├── semantics/    annotations.py (tracks → Panoramax annotations)
+├── core/         probe.py, decode.py, device.py, detect.py, track.py + flowtrack.py (signs),
+│                 analyze.py (pass 1), detections_io.py, postprocess.py (blur plan),
+│                 linking.py (signs), encode.py, render.py (pass 2), debug.py,
+│                 frames.py (best frames), mp4boxes.py, geometry.py, trim.py, pipeline.py
+├── privacy/      blur.py (blur methods), keep.py (encrypted regions)
+├── semantics/    annotations.py (sign tracks → Panoramax annotations)
 ├── video360/     wrap.py (wrap-around geometry across the 0°/360° seam)
 ├── telemetry/    gpmf.py (KLV parser), gps.py (GPS track → position at timestamp)
 ├── jobs/         store.py, runner.py (one job), worker.py (worker and janitor)

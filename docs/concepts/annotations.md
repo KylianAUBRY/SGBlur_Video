@@ -1,16 +1,17 @@
 # Annotations and Panoramax
 
 SGBlur-Video never blurs traffic signs. It detects them, follows them over
-time and returns **one Panoramax annotation per physical sign**, using exactly
-the tags SGBlur emits for pictures.
+time (signs are the only objects it tracks) and returns **one Panoramax
+annotation per physical sign**, using exactly the tags SGBlur emits for
+pictures.
 
 ## 1. One annotation per physical sign
 
 A sign is visible on many frames: a dashcam passing a sign at 30 km/h sees it
 for a second or two, i.e. dozens of frames. Sign detections (classes `sign` and
-`direction`) go through the same tracking and offline linking as faces and
-plates ([Tracking and post-processing](tracking.md)), and each resulting chain
-becomes a single annotation if:
+`direction`) are tracked, then linked offline across short interruptions
+([ADR-0011](../adr/0011-offline-linking.md)), and each resulting chain becomes
+a single annotation if:
 
 - it has at least `SIGN_MIN_TRACK_LENGTH` detections (5): a sign seen on 3
   frames is more likely a false positive than a real sign;

@@ -1,14 +1,13 @@
 """Privacy metrics of a blur plan against human ground truth (``docs/design/testing-strategy.md``).
 
-For each ground-truth object-frame (box ``G``) and the shapes ``M`` the
-renderer blurs on that frame (rectangles, or ellipses circumscribing the box
-for faces, with their copies across the 360° seam):
+For each ground-truth object-frame (box ``G``) and the rectangles ``M`` the
+renderer blurs on that frame (with their copies across the 360° seam):
 
 * **coverage** = |G ∩ M| / |G|, estimated on a grid of up to 16 × 16 points of
   ``G`` (blurring more than needed is harmless, so this is not an IoU);
 * the object-frame is **protected** when coverage ≥ ``coverage_threshold``.
 
-The metrics measure detection, tracking and post-processing. That the renderer
+The metrics measure detection and the blur plan. That the renderer
 really destroys the pixels of every planned shape is checked separately by the
 synthetic oracle (``tests/privacy``).
 """
@@ -24,7 +23,7 @@ import numpy as np
 import numpy.typing as npt
 
 from sgblur_video.bench.dataset import GroundTruth
-from sgblur_video.core.geometry import Box, center, circumscribed_ellipse, height, width
+from sgblur_video.core.geometry import Box, height, width
 from sgblur_video.core.postprocess import BlurPlan, BlurShape
 from sgblur_video.video360.wrap import copies
 
@@ -49,22 +48,7 @@ def _boxes(shape: BlurShape, wrap_width: int | None) -> list[Box]:
     return copies(shape.box, wrap_width) if wrap_width else [shape.box]
 
 
-def _extent(shape_kind: str, box: Box) -> Box:
-    """Bounding box of the blurred area of a shape."""
-    if shape_kind == "ellipse":
-        cx, cy, rx, ry = circumscribed_ellipse(box)
-        return (cx - rx, cy - ry, cx + rx, cy + ry)
-    return box
-
-
-def _inside(
-    shape_kind: str, box: Box, xs: npt.NDArray[np.float64], ys: npt.NDArray[np.float64]
-) -> npt.NDArray[np.bool_]:
-    if shape_kind == "ellipse":
-        cx, cy, rx, ry = circumscribed_ellipse(box)
-        if rx <= 0 or ry <= 0:
-            return np.zeros_like(xs, dtype=np.bool_)
-        return np.asarray(((xs - cx) / rx) ** 2 + ((ys - cy) / ry) ** 2 <= 1.0, dtype=np.bool_)
+def _inside(box: Box, xs: npt.NDArray[np.float64], ys: npt.NDArray[np.float64]) -> npt.NDArray[np.bool_]:
     return np.asarray((xs >= box[0]) & (xs <= box[2]) & (ys >= box[1]) & (ys <= box[3]), dtype=np.bool_)
 
 
@@ -88,16 +72,10 @@ def coverage(truth: Box, shapes: Sequence[BlurShape], wrap_width: int | None = N
     covered = np.zeros_like(xs, dtype=bool)
     for shape in shapes:
         for box in _boxes(shape, wrap_width):
-            reach = _extent(shape.kind, box)
-            if reach[2] < truth[0] or reach[0] > truth[2] or reach[3] < truth[1] or reach[1] > truth[3]:
+            if box[2] < truth[0] or box[0] > truth[2] or box[3] < truth[1] or box[1] > truth[3]:
                 continue
-            covered |= _inside(shape.kind, box, xs, ys)
+            covered |= _inside(box, xs, ys)
     return float(covered.mean())
-
-
-def _containing_chains(point: tuple[float, float], shapes: Sequence[BlurShape], wrap: int | None) -> set[str]:
-    xs, ys = np.array([point[0]]), np.array([point[1]])
-    return {s.track_id for s in shapes for box in _boxes(s, wrap) if bool(_inside(s.kind, box, xs, ys)[0])}
 
 
 @dataclass(frozen=True)
@@ -120,14 +98,12 @@ class ClipEvaluation:
     Attributes:
         clip_id: Clip identifier.
         object_frames: Every ground-truth object-frame with its coverage.
-        chains_per_track: Distinct blur chains covering each ground-truth track (1 = never re-identified).
         over_blur_ratio: Mean share of frame pixels blurred outside every ground-truth box.
         fps: Frame rate (for transient exposures).
     """
 
     clip_id: str
     object_frames: list[ObjectFrame] = field(default_factory=list)
-    chains_per_track: dict[str, int] = field(default_factory=dict)
     over_blur_ratio: float = 0.0
     fps: float = 30.0
 
@@ -148,26 +124,13 @@ def _over_blur(truth: GroundTruth, plan: BlurPlan) -> float:
         mask = np.zeros(size, dtype=np.uint8)
         for shape in shapes:
             for box in _boxes(shape, plan.wrap_width):
-                if shape.kind == "ellipse":
-                    cx, cy, rx, ry = circumscribed_ellipse(box)
-                    cv2.ellipse(
-                        mask,
-                        (round(cx * factor), round(cy * factor)),
-                        (max(0, round(rx * factor)), max(0, round(ry * factor))),
-                        0,
-                        0,
-                        360,
-                        1,
-                        -1,
-                    )
-                else:
-                    cv2.rectangle(
-                        mask,
-                        (round(box[0] * factor), round(box[1] * factor)),
-                        (round(box[2] * factor), round(box[3] * factor)),
-                        1,
-                        -1,
-                    )
+                cv2.rectangle(
+                    mask,
+                    (round(box[0] * factor), round(box[1] * factor)),
+                    (round(box[2] * factor), round(box[3] * factor)),
+                    1,
+                    -1,
+                )
         for known in gt_by_frame.get(frame, []):
             cv2.rectangle(
                 mask,
@@ -196,11 +159,8 @@ def evaluate_clip(
     """
     evaluation = ClipEvaluation(clip_id=truth.clip_id, fps=fps)
     for track in truth.tracks:
-        chains: set[str] = set()
         for gt in track.boxes:
-            shapes = plan.shapes(gt.frame)
-            value = coverage(gt.box, shapes, plan.wrap_width)
-            chains |= _containing_chains(center(gt.box), shapes, plan.wrap_width)
+            value = coverage(gt.box, plan.shapes(gt.frame), plan.wrap_width)
             evaluation.object_frames.append(
                 ObjectFrame(
                     track=track.id,
@@ -212,7 +172,6 @@ def evaluate_clip(
                     protected=value >= coverage_threshold,
                 )
             )
-        evaluation.chains_per_track[track.id] = len(chains)
     evaluation.over_blur_ratio = _over_blur(truth, plan)
     return evaluation
 
@@ -243,7 +202,7 @@ def summarize(evaluations: Sequence[ClipEvaluation]) -> dict[str, Any]:
     Returns:
         A JSON-serialisable summary: leakage overall, per class, per size bucket and for
         ``readable`` objects; tracks ever leaked; longest exposures; transient exposures;
-        re-identifications; over-blur ratio.
+        over-blur ratio.
     """
     frames = [o for e in evaluations for o in e.object_frames]
     tracks: dict[tuple[str, str], list[ObjectFrame]] = defaultdict(list)
@@ -274,7 +233,6 @@ def summarize(evaluations: Sequence[ClipEvaluation]) -> dict[str, Any]:
             for f in exposed
             if any(f - window <= p < f for p in protected) and any(f < p <= f + window for p in protected)
         )
-    chains = [n for e in evaluations for n in e.chains_per_track.values()]
     return {
         "clips": len(evaluations),
         "overall": _rate(frames),
@@ -294,7 +252,6 @@ def summarize(evaluations: Sequence[ClipEvaluation]) -> dict[str, Any]:
         "longest_exposure_frames": longest,
         "longest_exposure_frames_readable": longest_readable,
         "transient_exposures": transient,
-        "mean_chains_per_track": round(sum(chains) / len(chains), 3) if chains else 0.0,
         "over_blur_ratio": round(sum(e.over_blur_ratio for e in evaluations) / max(1, len(evaluations)), 5),
     }
 

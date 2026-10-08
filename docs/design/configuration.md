@@ -38,30 +38,29 @@ leave faces/plates visible or keep personal data longer.
 | `TILE_TRIGGER_WIDTH` | int | *5760* | Long side from which the tile pass runs. | Higher ↑ risk |
 | `EQUIRECT_PAD_RATIO` | float | *0.0625* | Circular padding on each side for 360° video (fraction of width). | Lower ↑ risk at the seam |
 | `PROJECTION` | `auto`\|`flat`\|`equirectangular` | `auto` | Force the projection when metadata is missing or wrong. | Wrong value ↑ risk at the seam |
-| `CONF_DETECT` | float | *0.10* | Minimum detector score kept (also fed to trackers). | Higher ↑ risk |
-| `CONF_BLUR` | float | *0.15* | Minimum score for a `blur`-class detection to be blurred on its own (orphans included). Tracked detections below it are blurred when their track contains a detection ≥ `CONF_BLUR`. | Higher ↑ risk |
-| `CONF_SIGN` | float | *0.6* | Minimum max-score of a sign track to produce an annotation (SGBlur value). | none |
+| `CONF_DETECT` | float | *0.30* | Minimum detector score kept (SGBlur's `MIN_CONF`); every face and plate detection kept is blurred on its frame. | Higher ↑ risk |
 | `DETECT_URL` | URL | empty | Remote Detect API; empty = in-process detection (SGBlur convention). | Video sent over the network: use a private network |
 
-## Tracking
+## Signs
+
+Only signs are tracked (one annotation per physical sign); tracking never
+changes what is blurred ([ADR-0012](../adr/0012-independent-frames.md)).
 
 | Name | Type | Default | Description | Privacy impact |
 |---|---|---|---|---|
-| `TRACKER_CONFIG` | path | `configs/trackers/flow.yaml` | Optical-flow tracker, or an Ultralytics tracker YAML (+ our `track_buffer_s` extension). | Indirect (gap filling relies on ids) |
-| `TRACK_WIDTH` | int | *1920* | Width of the frame used for tracking and camera-motion compensation. | — |
+| `TRACKER_CONFIG` | path | `configs/trackers/flow.yaml` | Sign tracker: optical flow, or an Ultralytics tracker YAML (+ our `track_buffer_s` extension). | none |
+| `TRACK_WIDTH` | int | *1920* | Width of the frame used for sign tracking and camera-motion compensation. | none |
+| `CONF_SIGN` | float | *0.6* | Minimum max-score of a sign track to produce an annotation (SGBlur value). | none |
+| `LINK_MAX_GAP_S` | float | *1.0* | Longest interruption across which detections of one sign are linked. | none |
+| `LINK_MAX_DISTANCE` | float | *1.0* | Box sizes between where a sign was heading and where it reappears. | none |
+| `SIGN_MIN_TRACK_LENGTH` | int | *5* | Minimum observations for a sign annotation. | none |
 
-## Post-processing and blur
+## Blur
 
 | Name | Type | Default | Description | Privacy impact |
 |---|---|---|---|---|
 | `BLUR_METHOD` | `pixelate_blur`\|`gaussian_strong`\|`solid` | `pixelate_blur` | Irreversible blur operation. | `gaussian_strong` weaker |
-| `PIXELATE_CELLS` | int | *6* | Max mosaic cells on the long side of a shape. | Higher ↑ risk |
-| `BLUR_BOX_MARGIN` | float | *0.10* | Enlargement of each box on each side (fraction of its size). | Lower ↑ risk |
-| `BLUR_TEMPORAL_PADDING_FRAMES` | int | *12* | Frames blurred before the first and after the last observation of a track / around an orphan. | Lower ↑ risk |
-| `BLUR_PADDING_GROWTH` | float | *0.05* | Per-frame growth of padded boxes. | Lower ↑ risk |
-| `MAX_INTERPOLATION_GAP_S` | float | *2.0* | Longest gap filled by interpolation inside a track. | Lower ↑ risk |
-| `MAX_INTERPOLATION_JUMP` | float | *20* | Largest move (box sizes) between two detections filled by interpolation. | Lower ↑ risk |
-| `SIGN_MIN_TRACK_LENGTH` | int | *5* | Minimum observations for a sign annotation. | none |
+| `PIXELATE_CELLS` | int | *6* | Max mosaic cells on the long side of a blurred box. | Higher ↑ risk |
 
 ## Encoding
 
@@ -80,7 +79,7 @@ leave faces/plates visible or keep personal data longer.
 | `KEEP_DIR` | path | `DATA_DIR/keep` | Encrypted `keep=1` regions. | — |
 | `KEEP_TTL_HOURS` | int | *48* | Lifetime of `keep=1` regions. | Higher ↑ retention |
 | `KEEP_SECRET_KEY` | secret str | empty | Server secret mixed with `blurring_id` (HKDF) to encrypt `keep=1` regions; empty disables `keep=1`. | Leak + store access = originals readable |
-| `KEEP_MAX_CONFIDENCE` | float | *0.5* | Only regions of tracks whose max score is below this are kept (potential false positives, as in SGBlur). | Higher ↑ retention |
+| `KEEP_MAX_CONFIDENCE` | float | *0.5* | Only regions detected with a score below this are kept (potential false positives, as in SGBlur). | Higher ↑ retention |
 | `MAX_UPLOAD_BYTES` | int | *8 GiB* | Upload size limit. | none |
 | `MAX_VIDEO_DURATION_S` | int | *1800* | Duration limit. | none |
 | `SYNC_MAX_DURATION_S` | int | *30* | Max duration for `sync=1`. | none |

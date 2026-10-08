@@ -280,7 +280,7 @@ def render(
             if shapes:
                 frame = blur_frame(
                     frame,
-                    [(s.kind, box) for s in shapes for box in _wrapped(s.box, plan.wrap_width)],
+                    [box for s in shapes for box in _wrapped(s.box, plan.wrap_width)],
                     settings.blur_method,
                     cells=settings.pixelate_cells,
                     rng=rng,

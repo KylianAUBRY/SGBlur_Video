@@ -10,11 +10,9 @@
 |---|---|
 | **Class** | A model output label: `face`, `plate`, `sign`, `direction`. Always referenced **by name**: the SGBlur YOLO26 model uses the order `direction, sign, plate, face`, YOLO11 used `sign, plate, face`. |
 | **Policy** | What we do with a class: `blur` (`face`, `plate`) or `annotate` (`sign`, `direction`). A model missing a `blur` class is refused at start-up (fail closed). |
-| **Class group** | Classes sharing a tracker: `face`, `plate`, `signage` (= `sign` + `direction`, because the model can hesitate between both on the same object). |
+| **Class group** | Classes merged together across passes: `face`, `plate`, `signage` (= `sign` + `direction`, because the model can hesitate between both on the same object). Only `signage` is tracked. |
 | **Detection** | One box from the detector on one frame, after cross-pass merging. |
-| **Track** | Detections of one group linked by the tracker under one `track_id`. |
-| **Orphan** | A detection the tracker did not output (score below the tracker thresholds, unconfirmed new track…). Orphans of `blur` classes are **still blurred**. |
-| **Observation** | A detection that belongs to a track. |
+| **Track** | Sign detections linked by the tracker under one `track_id`. Faces and plates are never tracked ([ADR-0012](../adr/0012-independent-frames.md)). |
 | **Coded frame** | The frame as stored in the stream (before display rotation). All boxes in `detections.jsonl` and the blur plan use coded coordinates; annotations use display coordinates. |
 
 ## 1. Probe and validation
@@ -73,7 +71,7 @@ only), `thorough` (tiles cover the full height, for nadir/zenith).
 Measured on 8 frames of an 8K equirectangular city video, Apple M4 Pro, YOLO26s
 (`benchmarks/results/2026-10-06-speed-8k-equirect-m4pro.json`): `fast` runs at
 0.06 s/frame (MPS) but finds about **3× fewer faces** than `standard`
-(1.4 vs 4.5 per frame at score ≥ `CONF_BLUR`); `standard` takes 0.43 s/frame
+(1.4 vs 4.5 per frame at score ≥ 0.15, the blur threshold at the time); `standard` takes 0.43 s/frame
 (MPS) or 1.9 s/frame (CPU); `thorough` adds about 8 % more faces for 3.2× the
 time. `fast` is therefore not a privacy-safe choice for 8K video.
 
@@ -83,27 +81,31 @@ with pixels copied from the opposite edge, so an object straddling the 0°/360°
 seam is seen whole at least once. Boxes are then mapped to canonical
 coordinates: `x1 ∈ [0, w)`, and `x2` may exceed `w` for a box that wraps.
 
-Inference uses `conf = CONF_DETECT` (*0.10*), the model's default NMS head
+Inference uses `conf = CONF_DETECT` (*0.30*, SGBlur's `MIN_CONF`), the model's default NMS head
 (`nms=None`), `quantize=16` on CUDA only, and `classes` restricted to classes
 with a policy.
 
 ### 2.3 Cross-pass merge
 
 All boxes of all passes for one frame are merged per class group with a greedy,
-score-ordered procedure: two boxes are duplicates if IoU ≥ *0.5* or if the
-smaller one is ≥ *80 %* inside the larger (IoMin), using wrap-aware geometry
-for equirect. The cluster keeps the best score and class, and its box is:
+score-ordered procedure, using wrap-aware geometry for equirect. The cluster
+keeps the best score and class.
 
-- for `blur` groups, the **union** of the cluster's boxes (privacy: never shrink a blur area);
-- for `signage`, the box of the best-scoring member (annotation quality).
+- `blur` groups follow SGBlur: two boxes are duplicates if IoU > *0.33* or if
+  the smaller one is ≥ *80 %* inside the larger (IoMin), and the cluster keeps
+  its **smallest** box.
+- `signage`: duplicates if IoU ≥ *0.5* or IoMin ≥ *80 %*; the cluster keeps the
+  box of the best-scoring member (annotation quality).
 
-SGBlur keeps the smallest box instead; for blurring we prefer the union.
+Unlike SGBlur, a face or plate is never merged with a sign (SGBlur merges
+across classes, so a plate overlapping a larger sign box could be dropped).
 
-### 2.4 Tracking
+### 2.4 Sign tracking
 
-One tracker instance **per class group**: separate trackers prevent a face
-track from being continued by a plate box, and cost little since the trackers
-run on a downscaled frame. The default is the optical-flow tracker
+Only signs are tracked, to produce one annotation per physical sign (§3.1);
+faces and plates are never tracked, and without any `annotate` class no
+tracker runs at all. The tracker runs on a downscaled frame. The default is
+the optical-flow tracker
 (`core/flowtrack.py`, `tracker_type: flow`,
 [ADR-0003](../adr/0003-default-tracker.md)): each track's box is moved by the
 median Lucas-Kanade flow of a grid of points over the box and one box size
@@ -119,9 +121,9 @@ notes below apply to them.
 - **Tracking space**: frame scaled to `TRACK_WIDTH` (*1920* px wide); merged boxes are scaled into it; the same downscaled BGR frame is passed as `img` for global motion compensation (GMC `sparseOptFlow`, which needs every frame at a constant size).
 - Input: `ultralytics.engine.results.Boxes([[x1, y1, x2, y2, score, cls]], shape)`; never with an `xywhr` attribute.
 - Output rows `[x1, y1, x2, y2, track_id, score, cls, idx]`: `idx` links the track back to our merged detection, which receives `track_id = "<group>:<id>"`. The Kalman box is not used for blurring; observations keep the detector box.
-- Detections the tracker does not return become **orphans** (verified in the spike: a 0.15-score plate is never returned by TrackTrack; a face missed on one frame keeps its id when it reappears).
+- Sign detections the tracker does not return keep `track_id = null` and are linked offline (§3.1).
 - `track_buffer` is a frame count in Ultralytics ≥ 8.4.38: our tracker YAMLs express it in seconds (`track_buffer_s`), converted with the video frame rate before the tracker is built.
-- Track ids come from a class attribute shared by every tracker in the process (`BaseTrack._count`): ids are unique across groups inside one job, and isolation between jobs is guaranteed by running each job in its own process.
+- Track ids come from a class attribute shared by every tracker in the process (`BaseTrack._count`): isolation between jobs is guaranteed by running each job in its own process.
 
 ### 2.5 Output
 
@@ -133,122 +135,51 @@ the job store at most once per second.
 
 *Implemented after step 9.* Pass 1 runs in three stages connected by bounded
 queues: a thread decodes frames, converts them to BGR and prepares the detector
-inputs (360° padding, tile crops: `YoloDetector.prepare`) and the tracking
+inputs (360° padding, tile crops: `YoloDetector.prepare`) and the sign-tracking
 image; the calling thread runs the inference passes (`YoloDetector.infer`) and
-the cross-pass merge; a thread runs the trackers and writes `detections.jsonl`
+the cross-pass merge; a thread runs the sign tracker and writes `detections.jsonl`
 in frame order. At most two prepared frames wait for inference (about 150 MB
 each at 8K). An error in a stage stops the pipeline and is re-raised. Output is
 identical to running the stages in sequence; 8K analysis is about 10 % faster
 on an Apple M4 Pro (3.55 → 3.9 frames/s).
 
-## 3. Post-processing (no GPU)
+## 3. Blur plan and sign annotations (no GPU)
 
-`core/postprocess.py` reads `detections.jsonl` and produces (a) a **blur plan**
-— for each frame, the list of shapes to blur — and (b) **sign annotations**.
+`core/postprocess.py` reads `detections.jsonl` and produces a **blur plan**:
+for each frame, the rectangles to blur. `semantics/annotations.py` produces the
+**sign annotations** (§3.1).
+
+Every frame is blurred on its own detections, like SGBlur blurs a picture
+([ADR-0012](../adr/0012-independent-frames.md)):
+
+- every `face` and `plate` detection of the frame with a score ≥ `CONF_DETECT`
+  is blurred (the plan checks the score again, so a `detections.jsonl` produced
+  with a lower threshold blurs the same);
+- with a **rectangle exactly on the detected box** (no margin);
+- boxes smaller than *12* px on a side are skipped (SGBlur value);
+- nothing is carried from one frame to the next: no tracking, interpolation,
+  padding or smoothing.
 
 ```
-frame          0    5    10   15   20   25   30   35   40   45   50
-detections     .    .    .    ███ ██  ·  ███████ .    .    .    .      ·  = frame missed by the detector
-track face:7                  ├─────────────────┤
-interpolated                         ▒                                 ▒  = box interpolated between 19 and 21
-padding (N=10)       ◄────────┤                 ├────────►             boxes extrapolated and growing
-blurred        .    ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓ .    .
+frame          0    5    10   15   20   25
+detections     .    .    ███ ██  ·  ███████     · = frame missed by the detector
+blurred        .    .    ███ ██  ·  ███████     the miss stays visible, as on a picture
 ```
 
-### 3.0 What gets blurred
+A face or plate the detector misses on a frame is therefore visible on that
+frame. The privacy benchmark on annotated clips measures how often and how
+long ([testing-strategy.md](testing-strategy.md)).
 
-For `blur` classes, a detection is blurred if **either** its own score is
-≥ `CONF_BLUR` (*0.15*, orphans included), **or** it belongs to a track that
-contains at least one detection ≥ `CONF_BLUR`. Detections between
-`CONF_DETECT` and `CONF_BLUR` therefore extend confirmed tracks (useful when a
-face turns away) without blurring isolated low-score noise. A track split at a
-jump (§3.2) counts as separate tracks for this rule. Every blurred detection
-then goes through the steps below.
+On 360° video, a box may cross the seam (`x2 > w`); the renderer blurs its part
+on each side.
 
-### 3.0b Offline linking ([ADR-0011](../adr/0011-offline-linking.md))
-
-Tracker tracks and orphans are *fragments*. Fragments of the same class group
-are chained when one starts at most `LINK_MAX_GAP_S` (*1 s*) after a chain ends,
-within `LINK_MAX_DISTANCE` (*1* box size, +10 % per frame of gap) of the chain's
-extrapolated position, with areas within ×4. Small, distant objects are often
-seen only every other frame and trackers fail to confirm them; linking turns
-those sightings back into continuous chains, which then go through the steps
-below (the selection rule of §3.0 applies per chain).
-
-### 3.1 Seam continuity (equirect only)
-
-Implemented by the offline linking of §3.0b, made wrap-aware: distances are
-measured around the circle (an object leaving at `x = w` and reappearing at
-`x = 0` is close), and observations joining a chain are shifted by whole turns
-(±w) so the chain stays continuous. Gap filling, smoothing and padding then
-work across the seam unchanged; rendering blurs each shape and its copies one
-turn left and right. (The separate stitching pass with `SEAM_MARGIN` /
-`SEAM_MAX_GAP_S` imagined at design time was not needed and was dropped.)
-
-### 3.2 Gap filling
-
-For two consecutive observations of a track at frames `i < j` with `j − i > 1`,
-every frame `k` in between receives a box linearly interpolated between the two
-boxes (x coordinates unwrapped for equirect). Gaps longer than
-`MAX_INTERPOLATION_GAP_S` (*2 s*) are not interpolated (the object may have
-left the field); both ends still receive temporal padding. Neither are two
-observations whose centres are more than `MAX_INTERPOLATION_JUMP` (*20* box
-sizes, largest side of either box) apart: that is two objects tracked as one,
-and interpolating would sweep a blur across the frame between them (seen on 8K
-360° video: one face track jumping 3 000 px in 24 frames). The chain is split
-there; each part is selected (§3.0) and padded on its own, and its padded
-boxes are never merged with the boxes of the other part, so a low-score false
-positive is not blurred because a real face elsewhere shares its track.
-
-### 3.3 Envelope smoothing
-
-Box coordinates are smoothed with a centred moving average over *5* frames,
-and the final box is the **union** of the smoothed and the original box, so
-smoothing removes jitter without ever shrinking a blur area.
-
-### 3.4 Temporal padding
-
-Before the first and after the last observation of every `blur` track,
-`BLUR_TEMPORAL_PADDING_FRAMES` (*12*, 0.4 s at 30 fps) extra frames are
-blurred. The padded box's **centre** follows the track's mean velocity over its
-first (or last) *5* observations, when at least *3* observations measure it
-and at most *0.5* box size per frame; its **size** stays that of the end box,
-enlarged by `BLUR_PADDING_GROWTH` (*5 %* per frame) to absorb motion
-uncertainty. Following the size change as well (an approaching car's plate
-grows quickly) made padded boxes several times larger than the object: a
-190 px plate padded with an 830 px box landing on the camera car's roof.
-Orphans get the same padding with zero velocity.
-
-Rationale for 12 frames: detectors typically pick a face up a few frames
-after it becomes recognisable (small, blurred by motion, partially occluded),
-and lose it a few frames before it leaves. ⅓–½ s is the order of magnitude used
-for "transient exposure" in recent video anonymisation work (UrbanAnonymizer,
-⅓ s). 15 frames made padding about 80 % of the blurred area on 8K 360° street
-video; 12 is the shortest value for which the synthetic privacy scenario
-(a small fast face lost 12 frames before it leaves) shows no leak. The privacy
-benchmark measures the exposure that remains at the start and end of
-ground-truth tracks ("transient exposures"); this value will be revisited with
-its results on annotated clips.
-
-### 3.5 Spatial margin and shapes
-
-Every box is enlarged by `BLUR_BOX_MARGIN` (*0.10* of its width/height on each
-side; 0.05 left a plate edge visible across the 360° seam in the synthetic
-scenario), then turned into a shape:
-
-- `face` → **ellipse circumscribing the enlarged box** (semi-axes = √2 × half-width/half-height). An ellipse inscribed in a box leaves 21.5 % of the box (the corners) unblurred; the circumscribed one contains the whole box.
-- `plate` → rectangle.
-
-Shapes are clipped to the frame; for equirect, a shape crossing `x = w` is
-split into its two parts.
-
-### 3.6 Sign deduplication and annotations
+### 3.1 Sign deduplication and annotations
 
 For each `signage` track:
 
-0. Sign fragments (tracks and orphans) are linked offline like faces and plates (§3.0b), so a sign detected intermittently is still one sign.
+0. Sign fragments (tracker tracks, and detections the tracker left alone) are linked offline ([ADR-0011](../adr/0011-offline-linking.md)): one starting at most `LINK_MAX_GAP_S` (*1 s*) after a chain ends, within `LINK_MAX_DISTANCE` (*1* box size, +10 % per frame of gap) of where the chain was heading, joins it, so a sign detected intermittently is still one sign. Distances are measured around the 360° seam.
 1. Drop it if it has fewer than `SIGN_MIN_TRACK_LENGTH` (*5*) observations or a max score below `CONF_SIGN` (*0.6*, SGBlur value).
-2. **Best frame** = observation maximising `score × box area` (real detections only, never interpolated boxes); the class reported is the majority class of the track.
+2. **Best frame** = detection maximising `score × box area`; the class reported is the majority class of the track.
 3. Emit one annotation (format in [api.md](api.md#metadata)): shape = best-frame box in display coordinates, integer pixels, clipped to the frame (for a box that wraps around the seam, the larger part is kept); semantics identical to SGBlur (`osm|traffic_sign=yes`, `detection_model[…]`, `detection_confidence[…]`, string values) for both `sign` and `direction` (maintainer decision, until SGBlur defines specific tags); `video` extension object with track id, first/best/last frame and timestamp, max/mean confidence, and the GPS position at the best timestamp when telemetry provides one.
 
 Future work (documented, not implemented): a second-stage classifier of sign
@@ -272,12 +203,12 @@ new frame carrying the original `pts`.
 ### 4.2 Blur methods
 
 Applied directly on the YUV planes (luma at full resolution, chroma at the
-subsampled resolution with a downsampled mask), in the source bit depth
+subsampled resolution), in the source bit depth
 (8 or 10 bit): no RGB round-trip, no colour shift, half the memory traffic.
 
 | `BLUR_METHOD` | Operation | Notes |
 |---|---|---|
-| `pixelate_blur` (default) | Area-average down to at most `PIXELATE_CELLS` (*6*) cells on the shape's long side, smooth at that resolution, interpolate back bilinearly, applied through the shape mask | Only ≤ 6×6 averages survive. Mosaics with many cells can be partly re-identified by machine learning (McPherson et al., 2016, arXiv:1609.00408), hence few cells and no block edges. |
+| `pixelate_blur` (default) | Area-average down to at most `PIXELATE_CELLS` (*6*) cells on the box's long side, smooth at that resolution, interpolate back bilinearly | Only ≤ 6×6 averages survive. Mosaics with many cells can be partly re-identified by machine learning (McPherson et al., 2016, arXiv:1609.00408), hence few cells and no block edges. |
 | `gaussian_strong` | Gaussian blur with σ = long side / 4, plus low-amplitude noise | Kept for users who prefer the look; weaker than mosaic against deconvolution. |
 | `solid` | Constant neutral grey | Maximum guarantee, least pleasant. |
 

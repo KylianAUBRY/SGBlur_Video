@@ -209,17 +209,13 @@ def _sign_annotations(
 
 
 def _stats(plan: BlurPlan, annotations: list[Annotation], detections: Detections) -> dict[str, Any]:
+    blurred = {
+        key.removeprefix("boxes_"): count for key, count in plan.stats.items() if key.startswith("boxes_")
+    }
     return {
-        "tracks": {
-            "face": plan.stats.get("chains_face", 0),
-            "plate": plan.stats.get("chains_plate", 0),
-            "signage": len(annotations),
-        },
-        "blurred_boxes": {
-            source: plan.stats.get(f"boxes_{source}", 0)
-            for source in ("detected", "interpolated", "padded", "orphan")
-        },
+        "blurred_boxes": {"face": 0, "plate": 0} | blurred,
         "frames_with_blur": plan.stats.get("frames_with_blur", 0),
+        "signs": len(annotations),
         "model": f"{detections.header.model.get('name')}/{detections.header.model.get('version')}",
         "tracker": detections.header.tracking.get("tracker"),
     }
@@ -254,7 +250,7 @@ def render_detections(
         Plan, rendering statistics, metadata and best-frame entries.
     """
     plan = build_blur_plan(
-        detections, settings, frame_size=(info.width, info.height), fps=info.fps, wrap_width=_wrap_width(info)
+        detections, settings, frame_size=(info.width, info.height), wrap_width=_wrap_width(info)
     )
     logger.info("blur plan: %s", plan.stats)
     gps = read_gps(info)
@@ -400,7 +396,7 @@ def run_signs(
     )
     detections = load_detections(detections_path, info, allow_partial=True)
     plan = build_blur_plan(
-        detections, settings, frame_size=(info.width, info.height), fps=info.fps, wrap_width=_wrap_width(info)
+        detections, settings, frame_size=(info.width, info.height), wrap_width=_wrap_width(info)
     )
     gps = read_gps(info)
     annotations = _sign_annotations(detections, info, settings, gps)

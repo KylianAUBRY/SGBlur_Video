@@ -1,4 +1,4 @@
-"""Debug overlay: one colour per class, solid outlines for detections, dashed ones for deduced regions."""
+"""Debug overlay: one colour per class, each blurred region labelled with its detection score."""
 
 from collections.abc import Mapping
 
@@ -15,7 +15,7 @@ FACE: Box = (400, 400, 480, 480)
 SIGNS = frozenset({"sign", "direction"})
 
 
-def _detections(frames: Mapping[int, list[tuple[str, float, Box, str]]], count: int) -> Detections:
+def _detections(frames: Mapping[int, list[tuple[str, float, Box, str | None]]], count: int) -> Detections:
     header = Header(
         created_at="2026-10-07T00:00:00Z", video={}, model={}, detection={}, tracking={}, software={}
     )
@@ -38,17 +38,15 @@ def _overlay() -> tuple[BlurPlan, DebugOverlay]:
     detections = _detections(
         {
             0: [
-                ("face", 0.9, FACE, "face:1"),
-                ("plate", 0.8, (700, 700, 780, 730), "plate:1"),
+                ("face", 0.9, FACE, None),
+                ("plate", 0.8, (700, 700, 780, 730), None),
                 ("sign", 0.7, (100, 700, 160, 760), "signage:1"),
             ],
-            10: [("face", 0.6, FACE, "face:1")],
+            10: [("face", 0.6, FACE, None)],
         },
         20,
     )
-    plan = build_blur_plan(
-        detections, Settings(blur_temporal_padding_frames=0), frame_size=(1000, 1000), fps=30
-    )
+    plan = build_blur_plan(detections, Settings(), frame_size=(1000, 1000))
     return plan, DebugOverlay(plan, detections, SIGNS)
 
 
@@ -65,21 +63,13 @@ def test_each_class_has_its_colour() -> None:
         assert (image == CLASS_COLOURS[cls]).all(axis=2).any(), cls
 
 
-def test_detected_regions_show_the_detection_score() -> None:
-    plan, overlay = _overlay()
-    assert overlay._score(0, plan.shapes(0)[0]) == 0.9
-    face = next(s for s in plan.shapes(10) if s.cls == "face")
-    assert overlay._score(10, face) == 0.6
+def test_only_frames_with_a_detection_are_drawn() -> None:
+    _plan, overlay = _overlay()
+    assert _draw(overlay, 0)[400:481, 400:481].any()
+    assert _draw(overlay, 10)[400:481, 400:481].any()
+    assert not _draw(overlay, 5).any()  # nothing carried between detections
 
 
-def test_regions_without_detection_are_dashed() -> None:
-    plan, overlay = _overlay()
-    assert next(s for s in plan.shapes(5) if s.cls == "face").source == "interpolated"
-
-    def outline_pixels(index: int) -> int:
-        # Lower half of the face ellipse: no label there, no other object.
-        return int(_draw(overlay, index)[440:540, 320:560].any(axis=2).sum())
-
-    solid, dashed = outline_pixels(0), outline_pixels(5)
-    assert solid > 0
-    assert 0.3 * solid < dashed < 0.75 * solid
+def test_labels_show_the_detection_score() -> None:
+    plan, _ = _overlay()
+    assert [round(s.score, 2) for s in plan.shapes(10)] == [0.6]

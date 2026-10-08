@@ -1,12 +1,16 @@
-"""Pass 1: decode, detect (multi-scale), merge, track, write ``detections.jsonl``.
+"""Pass 1: decode, detect (multi-scale), merge, track signs, write ``detections.jsonl``.
+
+Every frame is analysed on its own, like a picture. Only signs are tracked, to
+produce one annotation per physical sign; faces and plates never are (their
+blur depends on the detections of their frame only).
 
 The work of each frame runs in three overlapping stages, so that the accelerator
 does not wait for the CPU:
 
 1. a thread decodes the next frames, converts them to BGR and prepares the
-   detector inputs (360° padding, tiles) and the small tracking image;
+   detector inputs (360° padding, tiles) and the small sign-tracking image;
 2. the calling thread runs inference and merges the detections;
-3. a thread tracks them and writes ``detections.jsonl``, in frame order.
+3. a thread tracks signs and writes ``detections.jsonl``, in frame order.
 
 Bounded queues keep at most ``_READY_FRAMES`` prepared frames in memory (about
 150 MB each for 8K; one on CPU, where inference and preparation share the cores
@@ -31,7 +35,7 @@ import numpy as np
 import numpy.typing as npt
 
 from sgblur_video import __version__
-from sgblur_video.config import Settings
+from sgblur_video.config import ClassAction, Settings
 from sgblur_video.core.decode import iter_frames, rotate_upright, to_bgr
 from sgblur_video.core.detect import (
     Detection,
@@ -67,7 +71,7 @@ class _Frame:
     index: int
     pts: int
     time: float
-    small: npt.NDArray[np.uint8]
+    small: npt.NDArray[np.uint8] | None
 
 
 @dataclass(frozen=True)
@@ -176,11 +180,15 @@ def analyze(
         equirect_pad_ratio=settings.equirect_pad_ratio,
     )
     wrap_width = info.width if info.projection == "equirectangular" else None
-    groups = class_groups(settings.class_policy)
+    # Only annotated classes (signs) are tracked; without any, no tracker runs at all.
+    annotate = settings.classes_with(ClassAction.ANNOTATE)
+    groups = {name: group for name, group in class_groups(settings.class_policy).items() if name in annotate}
     tracker_config = load_tracker_config(settings.tracker_config, info.fps)
     factor = min(1.0, settings.track_width / info.width)
     track_size = (max(2, round(info.width * factor)), max(2, round(info.height * factor)))
-    trackers = GroupTrackers(tracker_config, groups, track_size, wrap=wrap_width is not None)
+    trackers = (
+        GroupTrackers(tracker_config, groups, track_size, wrap=wrap_width is not None) if groups else None
+    )
     header = Header(
         created_at=datetime.now(UTC).isoformat(timespec="seconds"),
         video={
@@ -243,11 +251,13 @@ def analyze(
             for decoded in iter_frames(info.path, max_frames=max_frames):
                 full = to_bgr(decoded.frame)
                 prepared = prepare_frame(detector, rotate_upright(full, info.rotation), plan)
-                small = (
-                    np.asarray(cv2.resize(full, track_size, interpolation=cv2.INTER_AREA), dtype=np.uint8)
-                    if factor < 1
-                    else full
-                )
+                small = None
+                if trackers is not None:
+                    small = (
+                        np.asarray(cv2.resize(full, track_size, interpolation=cv2.INTER_AREA), dtype=np.uint8)
+                        if factor < 1
+                        else full
+                    )
                 item = _Prepared(_Frame(decoded.index, decoded.pts, decoded.time, small), prepared)
                 if not _put(ready, item, stop.is_set):
                     return
@@ -258,12 +268,11 @@ def analyze(
         nonlocal written
         while (item := _get(inferred, stop)) is not _END:
             frame, merged = cast(tuple[_Frame, list[Detection]], item)
-            trackers.update(merged, frame.small, factor)
+            if trackers is not None:
+                trackers.update(merged, frame.small, factor)
             records = []
             for det in merged:
                 counts[det.cls] += 1
-                if det.track_id is None:
-                    counts["orphans"] += 1
                 records.append(
                     DetectionRecord.model_validate(
                         {

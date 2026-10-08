@@ -5,6 +5,8 @@ date: 2026-10-06
 
 # Irreversible blur method and shapes
 
+> **Update 2026-10-08.** Since [ADR-0012](0012-independent-frames.md), every blurred region is a rectangle exactly on the detected box (no ellipse, no margin); the blur methods are unchanged.
+
 ## Context and Problem Statement
 
 A light Gaussian blur can be partially inverted (deconvolution) or defeated by

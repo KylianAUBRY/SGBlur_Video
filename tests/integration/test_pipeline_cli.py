@@ -129,7 +129,8 @@ def test_blur_writes_metadata_next_to_the_video(
     assert result.exit_code == 0, result.output
     metadata = json.loads((tmp_path / "out.metadata.json").read_text())
     assert metadata["blurring_id"]
-    assert metadata["stats"]["tracks"]["signage"] == 2
+    assert metadata["stats"]["signs"] == 2
+    assert metadata["stats"]["blurred_boxes"]["face"] > 0
     assert metadata["video"]["frame_count"] == FRAMES
     summary = json.loads(result.output[result.output.index("{") :])
     assert summary["signs"] == 2

@@ -1,4 +1,4 @@
-"""The ``benchmark`` commands: privacy (annotated dataset), trackers, and speed.
+"""The ``benchmark`` commands: privacy (annotated dataset) and speed.
 
 Reports describe videos by resolution, projection, codec and frame count only:
 never by file name, and they never contain pictures.
@@ -19,10 +19,10 @@ from typing import Any
 import yaml
 
 from sgblur_video import __version__
-from sgblur_video.bench.cache import DetectionCache, video_key
+from sgblur_video.bench.cache import DetectionCache
 from sgblur_video.bench.dataset import Dataset, DatasetError
 from sgblur_video.bench.metrics import ClipEvaluation, check_gate, evaluate_clip, summarize
-from sgblur_video.config import ClassAction, Settings
+from sgblur_video.config import Settings
 from sgblur_video.core.analyze import ProgressCallback
 from sgblur_video.core.decode import iter_frames, rotate_upright, to_bgr
 from sgblur_video.core.detect import build_plan, merge_detections, unrotate_box
@@ -31,25 +31,11 @@ from sgblur_video.core.pipeline import LoadedModel, load_model
 from sgblur_video.core.postprocess import BlurPlan, build_blur_plan
 from sgblur_video.core.probe import VideoInfo, probe
 from sgblur_video.models import ModelEntry, resolve_model
-from sgblur_video.semantics.annotations import find_sign_tracks
 
 logger = logging.getLogger(__name__)
 
 #: Settings reported with every benchmark run.
-REPORTED_SETTINGS = (
-    "detect_profile",
-    "conf_detect",
-    "conf_blur",
-    "tracker_config",
-    "track_width",
-    "link_max_gap_s",
-    "link_max_distance",
-    "max_interpolation_gap_s",
-    "blur_temporal_padding_frames",
-    "blur_padding_growth",
-    "blur_box_margin",
-)
-DEFAULT_CACHE = Path.home() / ".cache" / "sgblur-video" / "bench"
+REPORTED_SETTINGS = ("detect_profile", "conf_detect", "tile_trigger_width", "equirect_pad_ratio")
 
 
 def override(settings: Settings, values: dict[str, str]) -> Settings:
@@ -73,7 +59,7 @@ def override(settings: Settings, values: dict[str, str]) -> Settings:
 
 
 def parse_sweeps(items: Sequence[str]) -> list[dict[str, str]]:
-    """``["CONF_BLUR=0.1,0.2", "LINK_MAX_GAP_S=1,2"]`` → every combination (one empty combination if none)."""
+    """``["CONF_DETECT=0.2,0.3", "DETECT_PROFILE=standard,thorough"]`` → every combination (one if none)."""
     axes: list[list[tuple[str, str]]] = []
     for item in items:
         name, sep, values = item.partition("=")
@@ -108,9 +94,7 @@ def _wrap(info: VideoInfo) -> int | None:
 
 def plan_for(detections: Detections, info: VideoInfo, settings: Settings) -> BlurPlan:
     """Blur plan of a video, as the pipeline would compute it."""
-    return build_blur_plan(
-        detections, settings, frame_size=(info.width, info.height), fps=info.fps, wrap_width=_wrap(info)
-    )
+    return build_blur_plan(detections, settings, frame_size=(info.width, info.height), wrap_width=_wrap(info))
 
 
 @dataclass
@@ -212,114 +196,6 @@ def run_privacy(
     }
 
 
-def _fragmentation(
-    detections: Detections, plan: BlurPlan, settings: Settings, info: VideoInfo
-) -> dict[str, Any]:
-    """Tracking quality without ground truth: how much of the work post-processing had to redo.
-
-    ``signs`` is the number of sign annotations: with the same detections, a tracker that
-    fragments signs less produces fewer duplicate annotations.
-    """
-    blur = settings.classes_with(ClassAction.BLUR)
-    dets = [d for f in detections.frames for d in f.detections if d.class_ in blur]
-    tracked = sum(1 for d in dets if d.track_id is not None)
-    tracks = len({d.track_id for d in dets if d.track_id is not None})
-    stats = plan.stats
-    chains_blurred = sum(
-        v for k, v in stats.items() if k.startswith("chains_") and k != "chains_below_threshold"
-    )
-    return {
-        "detections": len(dets),
-        "tracked_share": round(tracked / len(dets), 4) if dets else 0.0,
-        "tracks": tracks,
-        "fragments": stats.get("fragments", 0),
-        "chains": stats.get("chains", 0),
-        "chains_blurred": chains_blurred,
-        "detections_per_blurred_chain": round(len(dets) / chains_blurred, 2) if chains_blurred else 0.0,
-        "boxes_padded": stats.get("boxes_padded", 0),
-        "boxes_interpolated": stats.get("boxes_interpolated", 0),
-        "signs": len(find_sign_tracks(detections, settings, fps=info.fps, wrap_width=_wrap(info))),
-    }
-
-
-def run_trackers(
-    videos: Sequence[tuple[str, Path, DetectionCache | None]],
-    settings: Settings,
-    *,
-    trackers: Sequence[Path],
-    truths: dict[str, Any],
-    thresholds: dict[str, float],
-    model_name: str | None = None,
-    max_frames: int | None = None,
-    cache_dir: Path = DEFAULT_CACHE,
-    progress: Callable[[str], ProgressCallback] | None = None,
-) -> dict[str, Any]:
-    """Compare tracker configurations on the same detections.
-
-    Args:
-        videos: ``(label, path, cache)`` of each video (cache ``None`` = default cache folder).
-        settings: Base settings.
-        trackers: Tracker YAML files to compare.
-        truths: Ground truth per label, when the video is an annotated clip.
-        thresholds: Privacy thresholds (coverage threshold for clips with ground truth).
-        model_name: Registry model to use.
-        max_frames: Only the first N frames of each video.
-        cache_dir: Cache folder of videos given without a cache.
-        progress: Builds a progress callback for a label.
-
-    Returns:
-        The report.
-    """
-    models = ModelSource(settings, model_name)
-    sha = models.sha256()
-    loader = models.loader()
-    rows = []
-    for tracker in trackers:
-        variant = settings.model_copy(update={"tracker_config": tracker})
-        evaluations = []
-        for label, path, cache_ in videos:
-            info = probe(path, variant)
-            cache_ = cache_ or DetectionCache(cache_dir / video_key(path), sha, loader)
-            detections, spent = cache_.get(
-                info,
-                variant,
-                max_frames=max_frames,
-                progress=progress(f"{label} {tracker.stem}") if progress else None,
-            )
-            plan = plan_for(detections, info, variant)
-            row: dict[str, Any] = {
-                "tracker": tracker.stem,
-                "video": label,
-                **_fragmentation(detections, plan, variant, info),
-                "tracking_fps": round(len(detections.frames) / spent["tracking_s"], 1)
-                if "tracking_s" in spent
-                else None,
-            }
-            if label in truths:
-                evaluation = evaluate_clip(
-                    truths[label], plan, coverage_threshold=thresholds["coverage_threshold"], fps=info.fps
-                )
-                evaluations.append(evaluation)
-                clip_summary = summarize([evaluation])
-                row |= {
-                    "leakage_rate": clip_summary["overall"]["leakage_rate"],
-                    "mean_chains_per_track": clip_summary["mean_chains_per_track"],
-                }
-            rows.append(row)
-        if evaluations:
-            rows.append(
-                {"tracker": tracker.stem, "video": "all annotated clips"} | summarize(evaluations)["overall"]
-            )
-    return {
-        "kind": "trackers",
-        "generated_at": datetime.now(UTC).isoformat(timespec="seconds"),
-        "sgblur_video": __version__,
-        "model": models.entry().tag,
-        "settings": _settings_summary(settings),
-        "rows": rows,
-    }
-
-
 def run_speed(
     video: Path,
     settings: Settings,
@@ -378,7 +254,7 @@ def run_speed(
             elapsed = time.perf_counter() - started
             if decoded.index >= warmup:
                 durations.append(elapsed)
-                counts.update(d.cls for d in merged if d.score >= variant.conf_blur)
+                counts.update(d.cls for d in merged)
             if callback is not None:
                 callback(decoded.index + 1, frames + warmup)
         timed = max(1, len(durations))

@@ -60,7 +60,7 @@ Results of synchronous requests are deleted as soon as they are sent.
 |---|---|
 | `keep=1` | Keep encrypted originals of low-confidence blurred regions for `KEEP_TTL_HOURS` (needs `KEEP_SECRET_KEY`). |
 | `frames=1` | Also produce one blurred JPEG per sign best view. |
-| `debug=1` | Also produce a debug video at `/jobs/{id}/debug` (`links.debug` in the status): colour = class (magenta face, yellow plate, blue sign, cyan direction sign); solid outline = detected on that frame, labelled with class, score and track number; dashed outline, without label = blurred without a detection on that frame, from the object's track (interpolated between two detections, or padded before or after them). H.264 at most 1920 px wide, so it plays in every browser. `DEBUG_VIDEOS=false` disables it. |
+| `debug=1` | Also produce a debug video at `/jobs/{id}/debug` (`links.debug` in the status): colour = class (magenta face, yellow plate, blue sign, cyan direction sign); every blurred box is a detection of that frame, labelled with its class and score; signs also show their track number. H.264 at most 1920 px wide, so it plays in every browser. `DEBUG_VIDEOS=false` disables it. |
 | `sync=1` | Wait for the result (short videos only). |
 | `callback_url=…` | `POST` the final job status there (host must be in `CALLBACK_ALLOWED_HOSTS`). |
 | `start_frame=N`, `end_frame=M` | Only process frames `N` to `M - 1` (0-based; either can be omitted). The rest of the upload is deleted before processing; the result holds only those frames, with the audio and telemetry of the same span, and its times count from frame `N` (`video.frame_range` in the metadata). A GoPro telemetry packet covers about 1 s, so a very short range can report a slightly longer duration than its video. |

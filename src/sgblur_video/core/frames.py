@@ -29,6 +29,7 @@ from sgblur_video.core.probe import VideoInfo
 from sgblur_video.privacy.blur import blur_frame
 from sgblur_video.semantics.annotations import Annotation
 from sgblur_video.telemetry.gps import Fix, GpsTrack
+from sgblur_video.video360.wrap import copies
 
 logger = logging.getLogger(__name__)
 
@@ -187,7 +188,11 @@ def extract_best_frames(
             break
         if decoded.index not in wanted:
             continue
-        shapes = [(s.kind, s.box) for s in plan.shapes(decoded.index)]
+        shapes = [
+            box
+            for s in plan.shapes(decoded.index)
+            for box in (copies(s.box, plan.wrap_width) if plan.wrap_width else [s.box])
+        ]
         frame = (
             blur_frame(decoded.frame, shapes, settings.blur_method, cells=settings.pixelate_cells, rng=rng)
             if shapes

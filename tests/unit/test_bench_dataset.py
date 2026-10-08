@@ -84,19 +84,19 @@ def test_sha256_file(tmp_path: Path) -> None:
 
 def test_sweeps_and_overrides() -> None:
     assert parse_sweeps([]) == [{}]
-    assert parse_sweeps(["CONF_BLUR=0.1,0.2", "link_max_gap_s=1"]) == [
-        {"CONF_BLUR": "0.1", "link_max_gap_s": "1"},
-        {"CONF_BLUR": "0.2", "link_max_gap_s": "1"},
+    assert parse_sweeps(["CONF_DETECT=0.2,0.3", "detect_profile=fast"]) == [
+        {"CONF_DETECT": "0.2", "detect_profile": "fast"},
+        {"CONF_DETECT": "0.3", "detect_profile": "fast"},
     ]
     with pytest.raises(ValueError, match="invalid --sweep"):
-        parse_sweeps(["CONF_BLUR"])
-    settings = override(Settings(), {"CONF_BLUR": "0.3", "detect_profile": "fast"})
-    assert settings.conf_blur == 0.3
+        parse_sweeps(["CONF_DETECT"])
+    settings = override(Settings(), {"CONF_DETECT": "0.4", "detect_profile": "fast"})
+    assert settings.conf_detect == 0.4
     assert settings.detect_profile.value == "fast"
     with pytest.raises(ValueError, match="unknown setting"):
         override(Settings(), {"NOPE": "1"})
-    with pytest.raises(ValueError, match="conf_blur"):
-        override(Settings(), {"CONF_BLUR": "high"})
+    with pytest.raises(ValueError, match="conf_detect"):
+        override(Settings(), {"CONF_DETECT": "high"})
 
 
 def _detections(
@@ -121,16 +121,17 @@ def _detections(
 
 
 def test_preannotation_tracks_split_long_gaps_and_keep_key_boxes() -> None:
-    settings = Settings(max_interpolation_gap_s=0.1, link_max_gap_s=5.0, link_max_distance=10.0)
-    face = ("face", 0.5, (100.0, 100.0, 120.0, 120.0), "face:1")
-    frames = {f: [face] for f in [*range(0, 10), *range(20, 25)]}
-    frames[30] = [("plate", 0.05, (0.0, 0.0, 10.0, 5.0), None)]  # below the pre-annotation threshold
+    settings = Settings(link_max_gap_s=5.0, link_max_distance=10.0)
+    face = ("face", 0.5, (100.0, 100.0, 120.0, 120.0), None)
+    # Linked across 70 frames, but split there: longer than PREANNOTATION_MAX_GAP_S (2 s at 30 fps).
+    frames = {f: [face] for f in [*range(0, 10), *range(80, 85)]}
+    frames[90] = [("plate", 0.05, (0.0, 0.0, 10.0, 5.0), None)]  # below the pre-annotation threshold
     tracks = preannotation_tracks(
         _detections(frames), settings, conf=0.1, fps=30.0, proxy_factor=0.5, wrap_width=None, keyframe_step=4
     )
     assert [(t.label, [k.frame for k in t.boxes], t.end) for t in tracks] == [
         ("face", [0, 4, 8, 9], 10),
-        ("face", [20, 24], 25),
+        ("face", [80, 84], 85),
     ]
     assert tracks[0].boxes[0].box == (50.0, 50.0, 60.0, 60.0)
 

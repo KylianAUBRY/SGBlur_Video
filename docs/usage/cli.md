@@ -16,10 +16,11 @@ uv run sgblur-video blur input.mp4 output.mp4 --max-frames 90   # quick try on t
 
 The CLI reads the same settings as the service: environment variables, or a
 `.env` file in the current folder ([configuration reference](../reference/configuration.md)).
-For example, to blur more aggressively on one run:
+For example, to keep lower-score detections on one run (more blur, more false
+positives):
 
 ```bash
-CONF_BLUR=0.1 BLUR_TEMPORAL_PADDING_FRAMES=20 uv run sgblur-video blur input.mp4 output.mp4
+CONF_DETECT=0.2 uv run sgblur-video blur input.mp4 output.mp4
 ```
 
 `sgblur-video config` prints the effective settings (secrets masked, home
@@ -32,12 +33,12 @@ folder shown as `~`). Run commands from the repository root, or set
 |---|---|
 | `blur IN OUT [--model NAME] [--tracker YAML] [--debug] [--frames-dir DIR] [--keep-detections FILE] [--max-frames N]` | Full pipeline. Also writes `OUT.metadata.json` (sign annotations) and, with `--debug`, `OUT.debug.mp4`. |
 | `detect IN --out detections.jsonl [--model] [--tracker] [--max-frames N]` | Pass 1 only ([format](../design/detections-format.md)). |
-| `render IN detections.jsonl OUT [--debug] [--frames-dir DIR] [--allow-partial]` | Post-processing and pass 2 from existing detections. Also writes `OUT.metadata.json`. |
+| `render IN detections.jsonl OUT [--debug] [--frames-dir DIR] [--allow-partial]` | Blur plan and pass 2 from existing detections. Also writes `OUT.metadata.json`. |
 | `signs IN --out signs.json [--model] [--tracker] [--frames-dir DIR] [--max-frames N]` | Sign annotations only, no video written. |
 
 `--frames-dir` writes the best view of each sign as a blurred JPEG (with EXIF
 date and GPS when known) and `frames.json`. `--debug` writes an annotated video
-(at most 1920 px wide): colour = class (magenta face, yellow plate, blue sign, cyan direction sign); solid outline = detected on that frame, labelled with class, score and track number; dashed outline, without label = blurred without a detection on that frame, from the object's track (interpolated between two detections, or padded before or after them). The HTTP API and the web page produce the same
+(at most 1920 px wide): colour = class (magenta face, yellow plate, blue sign, cyan direction sign); every blurred box is a detection of that frame, labelled with its class and score; signs also show their track number. The HTTP API and the web page produce the same
 video with `debug=1`.
 
 ## Service
@@ -66,5 +67,4 @@ See the [benchmarks guide](../guides/benchmarks.md).
 | `annotate preannotate --dataset DIR --id ID [--conf] [--min-frames] [--model]` | Rebuild a clip's pre-annotation with other thresholds. |
 | `annotate import XML --dataset DIR --id ID [--annotator NAME]` | Convert a "CVAT for video 1.1" export into ground truth. |
 | `benchmark privacy --dataset DIR [--sweep NAME=v1,v2]… [--model] [--tracker] [--thresholds YAML] [--report-dir DIR]` | Leakage against the annotated dataset; exit code 1 if the first run fails the gate. |
-| `benchmark trackers [--video F]… [--dataset DIR] [--tracker YAML]… [--model] [--max-frames N] [--cache-dir DIR] [--report-dir DIR]` | Trackers compared on the same detections. |
 | `benchmark speed IN [--model]… [--device]… [--profile]… [--frames 20] [--report-dir DIR]` | Detection speed per model, device and profile. |

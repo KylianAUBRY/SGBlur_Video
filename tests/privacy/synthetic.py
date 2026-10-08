@@ -60,7 +60,7 @@ def scenario() -> list[SyntheticObject]:
         visible=range(5, 45),
         # Late onset (5–7), a hole of 6 frames (17–22), early release (42–44), one isolated miss (10).
         detected=set(range(8, 42)) - {10, 17, 18, 19, 20, 21, 22},
-        score=lambda f: 0.12 if f % 4 == 0 else 0.55,  # some detections below CONF_BLUR
+        score=lambda f: 0.12 if f % 4 == 0 else 0.55,  # some detections below CONF_DETECT
     )
     flickering_plate = SyntheticObject(
         "plate",

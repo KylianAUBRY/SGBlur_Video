@@ -1,9 +1,9 @@
 """Traffic-sign tracks → Panoramax annotations (one annotation per physical sign).
 
 Signs and direction signs are never blurred. Their detections are grouped into
-fragments (tracker tracks and orphans), linked offline exactly like faces and
-plates (``docs/adr/0011-offline-linking.md``), filtered, and each remaining
-chain becomes **one** annotation:
+fragments (tracker tracks and orphans), linked offline
+(``core.linking``, ``docs/adr/0011-offline-linking.md``), filtered, and each
+remaining chain becomes **one** annotation:
 
 * ``shape``: the box of the chain's *best frame* (highest ``score × area``,
   real detections only), integer pixels in display orientation, clipped to the
@@ -35,7 +35,7 @@ from sgblur_video.config import ClassAction, Settings
 from sgblur_video.core.detect import class_groups, rotate_box
 from sgblur_video.core.detections_io import Detections
 from sgblur_video.core.geometry import area, clip
-from sgblur_video.core.postprocess import Observation, fragments_from_detections, link_fragments
+from sgblur_video.core.linking import Observation, fragments_from_detections, link_fragments
 from sgblur_video.telemetry.gps import GpsTrack
 from sgblur_video.video360.wrap import split
 

@@ -2,8 +2,8 @@
 
 Working on the decoder's planar YUV data (8 or 10 bit) avoids an RGB round
 trip: no colour shift, half the memory traffic on 8K 10-bit video. Each plane
-is processed at its own resolution (chroma planes are subsampled), with the
-shape mask computed analytically for that plane.
+is processed at its own resolution (chroma planes are subsampled). Regions
+are rectangles, like SGBlur's.
 
 Methods (``docs/adr/0004-irreversible-blur.md``):
 
@@ -15,16 +15,14 @@ Methods (``docs/adr/0004-irreversible-blur.md``):
 Example:
     >>> import numpy as np
     >>> y = np.zeros((64, 64), np.uint8); y[::2] = 255  # stripes
-    >>> shape = PlaneShape("rect", (16, 16, 48, 48))
-    >>> blur_plane(y, [shape], BlurMethod.PIXELATE_BLUR, cells=6, neutral=128)
+    >>> blur_plane(y, [(16, 16, 48, 48)], BlurMethod.PIXELATE_BLUR, cells=6, neutral=128)
     >>> int(y[32, 16:48].std()) < 20
     True
 """
 
 import math
 from collections.abc import Sequence
-from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any
 
 import av
 import av.video.plane
@@ -33,51 +31,20 @@ import numpy as np
 import numpy.typing as npt
 
 from sgblur_video.config import BlurMethod
-from sgblur_video.core.geometry import Box, circumscribed_ellipse
+from sgblur_video.core.geometry import Box
 
 #: 2-D uint8 (8-bit) or uint16 (10-bit) plane.
 PlaneArray = npt.NDArray[Any]
 
 
-@dataclass(frozen=True)
-class PlaneShape:
-    """A shape expressed in the pixel coordinates of one plane.
-
-    Attributes:
-        kind: ``ellipse`` (circumscribing ``box``) or ``rect``.
-        box: Box in plane pixels (may extend past the plane edges).
-    """
-
-    kind: Literal["ellipse", "rect"]
-    box: Box
-
-
-def _roi(shape: PlaneShape, plane_width: int, plane_height: int) -> tuple[int, int, int, int] | None:
-    """Integer region covered by the shape, clipped to the plane; None if empty."""
-    if shape.kind == "ellipse":
-        cx, cy, rx, ry = circumscribed_ellipse(shape.box)
-        x1, y1, x2, y2 = cx - rx, cy - ry, cx + rx, cy + ry
-    else:
-        x1, y1, x2, y2 = shape.box
+def _roi(box: Box, plane_width: int, plane_height: int) -> tuple[int, int, int, int] | None:
+    """Integer region covered by the box, clipped to the plane; None if empty."""
+    x1, y1, x2, y2 = box
     left, top = max(0, math.floor(x1)), max(0, math.floor(y1))
     right, bottom = min(plane_width, math.ceil(x2)), min(plane_height, math.ceil(y2))
     if right - left < 1 or bottom - top < 1:
         return None
     return left, top, right, bottom
-
-
-def _mask(shape: PlaneShape, roi: tuple[int, int, int, int]) -> npt.NDArray[np.bool_] | None:
-    """Boolean mask of the shape inside the ROI (None means the whole ROI)."""
-    if shape.kind == "rect":
-        return None
-    cx, cy, rx, ry = circumscribed_ellipse(shape.box)
-    left, top, right, bottom = roi
-    # Pixel centres; a pixel is blurred when its centre is inside the ellipse,
-    # and the ellipse is grown by half a pixel so that edge pixels are included.
-    xs = (np.arange(left, right) + 0.5 - cx) / max(rx + 0.5, 0.5)
-    ys = (np.arange(top, bottom) + 0.5 - cy) / max(ry + 0.5, 0.5)
-    result: npt.NDArray[np.bool_] = (xs[np.newaxis, :] ** 2 + ys[:, np.newaxis] ** 2) <= 1.0
-    return result
 
 
 def _pixelate_blur(patch: PlaneArray, cells: int) -> PlaneArray:
@@ -115,18 +82,18 @@ def _gaussian_strong(patch: PlaneArray, rng: np.random.Generator) -> PlaneArray:
 
 def blur_plane(
     plane: PlaneArray,
-    shapes: Sequence[PlaneShape],
+    shapes: Sequence[Box],
     method: BlurMethod,
     *,
     cells: int,
     neutral: int,
     rng: np.random.Generator | None = None,
 ) -> None:
-    """Blur shapes of one plane **in place**.
+    """Blur rectangles of one plane **in place**.
 
     Args:
         plane: 2-D plane (uint8 or uint16), writable, not owned by a decoder.
-        shapes: Shapes in this plane's pixel coordinates.
+        shapes: Boxes in this plane's pixel coordinates.
         method: Blur operation.
         cells: Maximum mosaic cells on the long side (``pixelate_blur``).
         neutral: Value used by ``solid`` (neutral grey for this plane).
@@ -134,8 +101,8 @@ def blur_plane(
     """
     plane_height, plane_width = plane.shape
     generator = rng if rng is not None else np.random.default_rng()
-    for shape in shapes:
-        roi = _roi(shape, plane_width, plane_height)
+    for box in shapes:
+        roi = _roi(box, plane_width, plane_height)
         if roi is None:
             continue
         left, top, right, bottom = roi
@@ -146,11 +113,7 @@ def blur_plane(
             blurred = _gaussian_strong(np.ascontiguousarray(patch), generator)
         else:
             blurred = _pixelate_blur(np.ascontiguousarray(patch), cells)
-        mask = _mask(shape, roi)
-        if mask is None:
-            patch[...] = blurred
-        else:
-            patch[mask] = blurred[mask]
+        patch[...] = blurred
 
 
 def neutral_values(bit_depth: int) -> tuple[int, int]:
@@ -195,7 +158,7 @@ def _plane_view(plane: av.video.plane.VideoPlane, dtype: type[np.uint8] | type[n
 
 def blur_frame(
     frame: av.VideoFrame,
-    shapes: Sequence[tuple[Literal["ellipse", "rect"], Box]],
+    shapes: Sequence[Box],
     method: BlurMethod,
     *,
     cells: int,
@@ -209,7 +172,7 @@ def blur_frame(
 
     Args:
         frame: Decoded frame.
-        shapes: ``(kind, box)`` pairs in coded-frame pixels.
+        shapes: Boxes in coded-frame pixels.
         method: Blur operation.
         cells: Maximum mosaic cells on the long side.
         rng: Random generator for ``gaussian_strong``.
@@ -227,9 +190,7 @@ def blur_frame(
         destination = _plane_view(dst_plane, dtype)
         destination[...] = _plane_view(src_plane, dtype)
         sx, sy = (1.0, 1.0) if index == 0 else (1.0 / (1 << log2_w), 1.0 / (1 << log2_h))
-        plane_shapes = [
-            PlaneShape(kind, (box[0] * sx, box[1] * sy, box[2] * sx, box[3] * sy)) for kind, box in shapes
-        ]
+        plane_shapes = [(box[0] * sx, box[1] * sy, box[2] * sx, box[3] * sy) for box in shapes]
         blur_plane(
             destination,
             plane_shapes,

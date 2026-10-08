@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 
 from sgblur_video.config import BlurMethod
-from sgblur_video.privacy.blur import PlaneShape, blur_frame, blur_plane, fallback_format
+from sgblur_video.privacy.blur import blur_frame, blur_plane, fallback_format
 
 
 def _checkerboard(height: int, width: int, dtype: type = np.uint8, high: int = 255) -> np.ndarray:
@@ -21,7 +21,7 @@ def _energy(patch: np.ndarray) -> float:
 def test_blur_destroys_texture_inside_and_keeps_outside(method: BlurMethod) -> None:
     plane = _checkerboard(120, 160)
     original = plane.copy()
-    blur_plane(plane, [PlaneShape("rect", (40, 30, 120, 90))], method, cells=6, neutral=128)
+    blur_plane(plane, [(40, 30, 120, 90)], method, cells=6, neutral=128)
     assert _energy(plane[30:90, 40:120]) < 0.15 * _energy(original[30:90, 40:120])
     assert np.array_equal(plane[:, :40], original[:, :40])
     assert np.array_equal(plane[95:, :], original[95:, :])
@@ -30,23 +30,14 @@ def test_blur_destroys_texture_inside_and_keeps_outside(method: BlurMethod) -> N
 def test_pixelate_keeps_at_most_cells_degrees_of_freedom() -> None:
     rng = np.random.default_rng(0)
     plane = rng.integers(0, 256, (90, 120), dtype=np.uint8)
-    blur_plane(plane, [PlaneShape("rect", (0, 0, 120, 90))], BlurMethod.PIXELATE_BLUR, cells=6, neutral=128)
+    blur_plane(plane, [(0, 0, 120, 90)], BlurMethod.PIXELATE_BLUR, cells=6, neutral=128)
     # Smooth result: neighbouring pixels differ by little (no recoverable detail).
     assert np.abs(np.diff(plane.astype(int), axis=1)).max() < 40
 
 
-def test_ellipse_covers_the_whole_box_and_not_far_corners() -> None:
-    plane = _checkerboard(200, 200)
-    original = plane.copy()
-    box = (80.0, 80.0, 120.0, 120.0)
-    blur_plane(plane, [PlaneShape("ellipse", box)], BlurMethod.SOLID, cells=6, neutral=7)
-    assert (plane[80:120, 80:120] == 7).all()  # the detected box is entirely covered
-    assert np.array_equal(plane[:60, :60], original[:60, :60])  # far corner untouched
-
-
 def test_ten_bit_planes() -> None:
     plane = _checkerboard(64, 64, np.uint16, high=1023)
-    blur_plane(plane, [PlaneShape("rect", (8, 8, 56, 56))], BlurMethod.PIXELATE_BLUR, cells=6, neutral=512)
+    blur_plane(plane, [(8, 8, 56, 56)], BlurMethod.PIXELATE_BLUR, cells=6, neutral=512)
     assert plane.dtype == np.uint16
     assert plane.max() <= 1023
     assert _energy(plane[8:56, 8:56]) < 100
@@ -55,7 +46,7 @@ def test_ten_bit_planes() -> None:
 def test_shapes_outside_the_plane_are_ignored() -> None:
     plane = _checkerboard(32, 32)
     original = plane.copy()
-    blur_plane(plane, [PlaneShape("rect", (100, 100, 120, 120))], BlurMethod.SOLID, cells=6, neutral=0)
+    blur_plane(plane, [(100, 100, 120, 120)], BlurMethod.SOLID, cells=6, neutral=0)
     assert np.array_equal(plane, original)
 
 
@@ -66,7 +57,7 @@ def test_blur_frame_returns_a_blurred_copy(pix_fmt: str) -> None:
     )
     source.pts = 42
     before = source.to_ndarray().copy()
-    result = blur_frame(source, [("rect", (16, 16, 80, 48))], BlurMethod.SOLID, cells=6)
+    result = blur_frame(source, [(16, 16, 80, 48)], BlurMethod.SOLID, cells=6)
     assert np.array_equal(source.to_ndarray(), before)  # decoded frame untouched
     assert result.pts == 42
     assert result.format.name == (pix_fmt if pix_fmt != "nv12" else "yuv420p")

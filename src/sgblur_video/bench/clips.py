@@ -23,8 +23,8 @@ from sgblur_video.core.detect import class_groups
 from sgblur_video.core.detections_io import Detections
 from sgblur_video.core.encode import choose_encoder
 from sgblur_video.core.geometry import Box, scale, union_box, width
+from sgblur_video.core.linking import fragments_from_detections, link_fragments
 from sgblur_video.core.mp4boxes import Mp4BoxError, transplant
-from sgblur_video.core.postprocess import fragments_from_detections, link_fragments
 from sgblur_video.core.probe import VideoInfo
 from sgblur_video.video360.wrap import normalize, split
 
@@ -172,10 +172,12 @@ def _visible(box: Box, wrap_width: int | None) -> Box:
     return max(split(normalize(box, wrap_width), wrap_width), key=width)
 
 
-#: Pre-annotation links fragments more loosely than post-processing (distance and gap factors):
+#: Pre-annotation links fragments more loosely than signs (distance and gap factors):
 #: one CVAT track per object saves the annotator from merging fragments by hand.
 PREANNOTATION_LINK_DISTANCE_FACTOR = 3.0
 PREANNOTATION_LINK_GAP_FACTOR = 2.0
+#: A pre-annotated track is split where the object is not detected for longer than this.
+PREANNOTATION_MAX_GAP_S = 2.0
 
 
 def preannotation_tracks(
@@ -191,13 +193,13 @@ def preannotation_tracks(
 ) -> list[PreTrack]:
     """Face and plate tracks for CVAT, from the model's detections of the clip.
 
-    Fragments are linked like in post-processing, with looser limits
+    Detections are linked like signs (``core.linking``), with looser limits
     (``PREANNOTATION_LINK_*_FACTOR``). A chain is pre-annotated when one of its
     detections reaches ``conf`` and it was detected on at least ``min_frames``
     frames: on 8K 360° video the model reports hundreds of flickering
     fragments, and deleting false tracks costs the annotator more than drawing
     the missed ones. A chain is split where the object is not detected for
-    longer than ``MAX_INTERPOLATION_GAP_S``, and keeps one key box every
+    longer than ``PREANNOTATION_MAX_GAP_S``, and keeps one key box every
     ``keyframe_step`` frames (CVAT interpolates in between).
 
     Args:
@@ -222,7 +224,7 @@ def preannotation_tracks(
         max_distance=settings.link_max_distance * PREANNOTATION_LINK_DISTANCE_FACTOR,
         wrap_width=wrap_width,
     )
-    max_gap = max(1, round(settings.max_interpolation_gap_s * fps))
+    max_gap = max(1, round(PREANNOTATION_MAX_GAP_S * fps))
     tracks = []
     for chain in chains:
         if max(o.score for o in chain.observations) < conf:

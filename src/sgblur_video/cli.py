@@ -39,7 +39,7 @@ app = typer.Typer(
 )
 models_app = typer.Typer(help="Inspect and download detection models.", no_args_is_help=True)
 annotate_app = typer.Typer(help="Build the manually annotated privacy dataset.", no_args_is_help=True)
-benchmark_app = typer.Typer(help="Measure privacy, tracking and speed.", no_args_is_help=True)
+benchmark_app = typer.Typer(help="Measure privacy and speed.", no_args_is_help=True)
 app.add_typer(models_app, name="models")
 app.add_typer(annotate_app, name="annotate")
 app.add_typer(benchmark_app, name="benchmark")
@@ -53,7 +53,8 @@ ModelOption = Annotated[
     ),
 ]
 TrackerOption = Annotated[
-    Path | None, typer.Option("--tracker", exists=True, dir_okay=False, help="Tracker YAML configuration.")
+    Path | None,
+    typer.Option("--tracker", exists=True, dir_okay=False, help="Sign tracker YAML configuration."),
 ]
 
 
@@ -587,7 +588,7 @@ def benchmark_privacy(
     dataset: DatasetOption,
     sweep: Annotated[
         list[str] | None,
-        typer.Option("--sweep", help="Settings to compare, e.g. CONF_BLUR=0.1,0.25 (repeatable)."),
+        typer.Option("--sweep", help="Settings to compare, e.g. CONF_DETECT=0.2,0.3 (repeatable)."),
     ] = None,
     model: ModelOption = None,
     tracker: TrackerOption = None,
@@ -616,73 +617,6 @@ def benchmark_privacy(
     _emit(report, report_dir or dataset / "reports")
     if not report["runs"][0]["gate"]["passed"]:
         raise typer.Exit(code=1)
-
-
-@benchmark_app.command(name="trackers")
-def benchmark_trackers(
-    video: Annotated[
-        list[Path] | None,
-        typer.Option("--video", exists=True, dir_okay=False, help="Video to compare on (repeatable)."),
-    ] = None,
-    dataset: Annotated[
-        Path | None, typer.Option("--dataset", file_okay=False, help="Also use the annotated clips.")
-    ] = None,
-    tracker: Annotated[
-        list[Path] | None,
-        typer.Option(
-            "--tracker", exists=True, dir_okay=False, help="Tracker YAML (default: configs/trackers/*)."
-        ),
-    ] = None,
-    model: ModelOption = None,
-    max_frames: MaxFramesOption = None,
-    thresholds: ThresholdsOption = DEFAULT_THRESHOLDS,
-    report_dir: ReportDirOption = None,
-    cache_dir: Annotated[
-        Path | None,
-        typer.Option("--cache-dir", file_okay=False, help="Detections cache of --video files."),
-    ] = None,
-) -> None:
-    """Compare trackers on the same detections (detection runs once, tracking is replayed).
-
-    Detections of `--video` files are cached in `~/.cache/sgblur-video/bench` by default.
-    """
-    from sgblur_video.bench.cache import DetectionCache
-    from sgblur_video.bench.dataset import Dataset
-    from sgblur_video.bench.runs import DEFAULT_CACHE, ModelSource, load_thresholds, run_trackers
-
-    settings = _setup()
-    trackers = tracker or sorted(Path("configs/trackers").glob("*.yaml"))
-    videos: list[tuple[str, Path, DetectionCache | None]] = [
-        (f"video-{i + 1}", path, None) for i, path in enumerate(video or [])
-    ]
-    truths = {}
-    try:
-        if dataset is not None:
-            data = Dataset(dataset)
-            source = ModelSource(settings, model)
-            sha, loader = source.sha256(), source.loader()
-            for clip in data.load_manifest().clips:
-                videos.append(
-                    (clip.id, data.clip_video(clip.id), DetectionCache(data.cache_dir(clip.id), sha, loader))
-                )
-                if (truth := data.load_ground_truth(clip.id)) is not None:
-                    truths[clip.id] = truth
-        if not videos:
-            _fail(ValueError("give --video and/or --dataset"))
-        report = run_trackers(
-            videos,
-            settings,
-            trackers=trackers,
-            truths=truths,
-            thresholds=load_thresholds(thresholds),
-            model_name=model,
-            max_frames=max_frames,
-            cache_dir=cache_dir or DEFAULT_CACHE,
-            progress=_Progress,
-        )
-    except _expected_errors() as exc:
-        _fail(exc)
-    _emit(report, report_dir)
 
 
 @benchmark_app.command(name="speed")

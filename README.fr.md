@@ -14,14 +14,14 @@ apparaissent**, et renvoie **une annotation Panoramax par panneau physique**.
 > push ; la validation sur de vraies vidéos annotées est en cours. Relisez le
 > résultat avant de le publier, et ne l'utilisez pas encore en production.
 
-## Pourquoi la vidéo demande plus qu'un floutage image par image
+## SGBlur, image par image
 
-Un visage flouté sur 299 images et net sur une seule est un échec. SGBlur-Video :
+SGBlur-Video découpe la vidéo en images, floute **chaque image comme une photo
+indépendante** avec les règles de SGBlur, puis reconstitue la vidéo
+([ADR-0012](docs/adr/0012-independent-frames.md), en anglais). Il :
 
-- détecte sur **chaque** image, à plusieurs échelles (et par tuiles pour la 360° en 8K) ;
-- **suit** les objets dans le temps et floute aussi les images où le détecteur les a ratés ;
-- floute quelques images **avant et après** chaque piste, avec une marge autour de chaque boîte ;
-- floute aussi les **détections isolées de faible confiance** : mieux vaut trop flouter que pas assez ;
+- détecte sur **chaque** image, à plusieurs échelles (et par tuiles pour la 360° en 8K), comme SGBlur ;
+- floute chaque visage et chaque plaque détectés sur une image (score ≥ 0,30) avec un rectangle sur sa boîte, et rien d'autre : pas de suivi ni de prolongement, donc une image où le modèle rate un objet le laisse visible, comme sur une photo ;
 - utilise un flou **irréversible** (mosaïque + flou, ou aplat) ;
 - **ne floute jamais les panneaux** : ils sont dédoublonnés et renvoyés comme annotations sémantiques (`osm|traffic_sign=yes`, mêmes tags que SGBlur) ;
 - ne conserve aucune vidéo originale après le traitement, même en cas d'erreur.
@@ -30,9 +30,9 @@ Un visage flouté sur 299 images et net sur une seule est un échec. SGBlur-Vide
 
 ```mermaid
 flowchart LR
-    v[/Vidéo/] --> a["Passe 1 : décodage → YOLO26 (multi-échelle) → suivi"]
+    v[/Vidéo/] --> a["Passe 1 : décodage → YOLO26 (multi-échelle) → suivi des panneaux"]
     a --> j[/detections.jsonl/]
-    j --> p["Post-traitement : comblement, marges temporelles et spatiales, dédoublonnage des panneaux"]
+    j --> p["Plan de flou (détections de chaque image), dédoublonnage des panneaux"]
     p --> r["Passe 2 : décodage → flou → encodage → remux audio, GPS, métadonnées 360°"]
     r --> o[/Vidéo floutée + annotations/]
 ```

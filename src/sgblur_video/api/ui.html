@@ -75,7 +75,6 @@
   .legend { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: .9rem; color: var(--muted); margin: -4px 0 12px; }
   .legend span { display: inline-flex; align-items: center; gap: 6px; }
   .legend i { display: inline-block; width: 24px; height: 14px; border: 3px solid var(--text); border-radius: 4px; }
-  .legend i.dashed { border-style: dashed; }
   [hidden] { display: none !important; }
 </style>
 </head>
@@ -145,8 +144,7 @@
       <span><i style="border-color:#ffd700"></i>plate</span>
       <span><i style="border-color:#0080ff"></i>sign (kept)</span>
       <span><i style="border-color:#00ffff"></i>direction sign (kept)</span>
-      <span><i></i>solid: detected on this frame (score)</span>
-      <span><i class="dashed"></i>dashed: no detection on this frame, blurred from the track</span>
+      <span>every blurred box is a detection of that frame (label: class and score)</span>
     </div>
     <p class="muted" id="codec-note">If the video does not play, your browser may not support its codec (HEVC):
       download it.</p>
@@ -175,7 +173,7 @@ const state = { file: null, job: null, timer: null, urls: [], previewUrl: null, 
 fetch("/").then((response) => response.json()).then((service) => {
   const model = service.model || {};
   $("service").textContent = "Model " + (model.name || "?") + "/" + (model.version || "?") +
-    " · tracker " + (service.tracker || "?") + " · device " + (service.device || "?");
+    " · device " + (service.device || "?");
 }).catch(() => {});
 // Frame range: frame numbers are exact on the server; the browser only uses the frame rate to
 // show the matching picture in the preview and the duration of the selection.
@@ -367,7 +365,7 @@ $("start").addEventListener("click", () => {
   request.send(form);
 });
 
-const PHASES = { analyzing: "Detecting and tracking", postprocessing: "Planning the blur",
+const PHASES = { analyzing: "Detecting", postprocessing: "Planning the blur",
                  rendering: "Blurring and encoding", finalizing: "Finishing" };
 
 async function poll() {

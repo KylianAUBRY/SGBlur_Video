@@ -29,13 +29,10 @@ def test_encryption_needs_the_secret_and_the_blurring_id() -> None:
         decrypt(blob, secret="s3cret", blurring_id="id-2")
 
 
-def test_recorder_keeps_only_low_confidence_chains(tmp_path: Path) -> None:
+def test_recorder_keeps_only_low_confidence_detections(tmp_path: Path) -> None:
     frame = av.VideoFrame.from_ndarray(np.full((40, 60, 3), 200, np.uint8), format="rgb24")
-    recorder = KeepRecorder({"plate:1": 0.3, "face:2": 0.9}, max_confidence=0.5)
-    shapes = [
-        BlurShape("rect", (5, 5, 25, 15), "plate", "detected", "plate:1"),
-        BlurShape("ellipse", (30, 5, 50, 30), "face", "detected", "face:2"),
-    ]
+    recorder = KeepRecorder(max_confidence=0.5)
+    shapes = [BlurShape((5, 5, 25, 15), "plate", 0.3), BlurShape((30, 5, 50, 30), "face", 0.9)]
     recorder(7, frame, shapes)
     assert recorder.regions == 1
     path = recorder.save(tmp_path, secret="k", blurring_id="bid")
@@ -44,12 +41,12 @@ def test_recorder_keeps_only_low_confidence_chains(tmp_path: Path) -> None:
     assert "bid" not in path.name  # the file name does not reveal the id
     archive = zipfile.ZipFile(io.BytesIO(decrypt(path.read_bytes(), secret="k", blurring_id="bid")))
     manifest = json.loads(archive.read("manifest.json"))
-    assert [r["chain"] for r in manifest["regions"]] == ["plate:1"]
+    assert [(r["class"], r["score"]) for r in manifest["regions"]] == [("plate", 0.3)]
     assert manifest["regions"][0]["frame"] == 7
 
 
 def test_nothing_is_written_without_low_confidence_regions(tmp_path: Path) -> None:
-    assert KeepRecorder({}, 0.5).save(tmp_path, secret="k", blurring_id="bid") is None
+    assert KeepRecorder(0.5).save(tmp_path, secret="k", blurring_id="bid") is None
     assert list(tmp_path.iterdir()) == []
 
 

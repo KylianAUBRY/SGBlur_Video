@@ -64,21 +64,7 @@ def test_annotate_export(env: Path, tmp_path: Path) -> None:
     assert "already annotated" in result.output
 
 
-def test_benchmark_trackers_and_speed(env: Path, tmp_path: Path, repo_root: Path) -> None:
-    trackers = repo_root / "configs" / "trackers"
-    args = ["benchmark", "trackers", "--video", str(env), "--max-frames", "10"]
-    args += ["--cache-dir", str(tmp_path / "cache"), "--report-dir", str(tmp_path / "reports")]
-    args += ["--tracker", str(trackers / "tracktrack-recall.yaml")]
-    args += ["--tracker", str(trackers / "botsort-recall.yaml")]
-    output = _invoke(args)
-    assert "| tracktrack-recall | video-1 |" in output
-    assert "| botsort-recall | video-1 |" in output
-    assert str(env.name) not in output  # reports never name files
-    (report,) = (tmp_path / "reports").glob("trackers-*.json")
-    rows = json.loads(report.read_text(encoding="utf-8"))["rows"]
-    assert rows[0]["tracking_fps"] is None  # detection ran
-    assert rows[1]["tracking_fps"] > 0  # tracking replayed on the cached detections
-
+def test_benchmark_speed(env: Path) -> None:
     output = _invoke(["benchmark", "speed", str(env), "--frames", "2", "--profile", "fast"])
     assert "| yolo26s/0.1.0 | cpu | fast | 1 |" in output
     assert f"{WIDTH}x{HEIGHT} flat h264" in output

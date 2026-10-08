@@ -28,8 +28,8 @@ def test_cache_keys(tmp_path: Path, repo_root: Path) -> None:
     tracker = repo_root / "configs" / "trackers" / "tracktrack-recall.yaml"
     settings = Settings(tracker_config=tracker)
     key = detection_key(settings, "abc", None)
-    # Post-processing settings do not change the detections; detection settings do.
-    assert detection_key(settings.model_copy(update={"conf_blur": 0.9}), "abc", None) == key
+    # Blur settings do not change the detections; detection settings do.
+    assert detection_key(settings.model_copy(update={"pixelate_cells": 12}), "abc", None) == key
     assert detection_key(settings.model_copy(update={"conf_detect": 0.2}), "abc", None) != key
     assert detection_key(settings, "def", None) != key
     assert detection_key(settings, "abc", 100) != key

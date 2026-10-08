@@ -20,7 +20,7 @@ need a reference built independently of the model:
 
 | Level | Runs | GPU | Data | Content |
 |---|---|---|---|---|
-| Unit (`tests/unit`) | every push (GitHub Actions) | no | in-memory | geometry (wrap-aware IoU, merge, ellipse), post-processing on synthetic tracks (interpolation, padding, smoothing envelope, wrap-aware linking across the 360° seam, sign dedup), annotation format, config validation, MP4 box editor on tiny generated files, job store state machine. Coverage ≥ 85 % on `core/`, `privacy/`, `semantics/`. |
+| Unit (`tests/unit`) | every push (GitHub Actions) | no | in-memory | geometry (wrap-aware IoU, SGBlur-style merge), the per-frame blur plan (score threshold, minimum size, 360° seam), wrap-aware sign linking and dedup, annotation format, config validation, MP4 box editor on tiny generated files, job store state machine. Coverage ≥ 85 % on `core/`, `privacy/`, `semantics/`. |
 | Synthetic oracle (A, `tests/privacy`) | every push | no | generated on the fly | see below — the CI privacy gate. |
 | Integration (`tests/integration`) | every push (CPU, short clips) | no | small free fixtures, downloaded and SHA-256 checked, cached | real model on CPU on a few seconds: same frame count, same duration (±1 frame), same timestamps, audio present and bit-identical, `gpmd` stream present and parsable, spherical metadata present, rotation preserved, no unknown boxes copied. |
 | HTTP API (`tests/integration/test_api.py`) and Docker | every push | no | generated clip | in-process FastAPI client: upload → poll → download → checks, `sync=1`, errors, cleanup; CI also builds the CPU image and checks its health endpoint. A full `docker compose up` + `curl` run was checked manually in step 6. |
@@ -28,9 +28,10 @@ need a reference built independently of the model:
 
 ## A — Synthetic oracle (CI privacy gate)
 
-*Implemented in step 4: `tests/privacy/`. It runs on every push, for H.264
-8-bit and HEVC 10-bit, plus a negative control proving that the same scenario
-leaks when padding, interpolation and linking are disabled.*
+*Implemented in step 4: `tests/privacy/`, revised for per-frame blurring
+([ADR-0012](../adr/0012-independent-frames.md)). It runs on every push, for
+H.264 8-bit and HEVC 10-bit, plus a negative control proving that the 360°
+scenario leaks without seam handling.*
 
 `tests/privacy/synthetic.py` generates short videos (flat 1920×1080 and
 equirect 3840×1920, H.264 and HEVC 10-bit, CFR and VFR) containing moving
@@ -42,20 +43,23 @@ A **scripted fake detector** replaces YOLO and reports those objects with
 realistic defects:
 
 - random misses (1 frame in 5), a 10-frame hole, late onset (first 8 frames missed) and early release (last 8 frames missed);
-- low scores below the tracker thresholds (orphans);
+- scores below `CONF_DETECT` on some frames;
 - jittered and slightly too small boxes;
 - duplicate detections from different passes;
 - signs that must never be blurred, one of them overlapping a face.
 
-The real pipeline (tracking, post-processing, rendering, encoding) runs on
-those inputs, then the oracle checks every object-frame of the **output
-video**: inside the true box, the high-frequency energy must have dropped
-below a threshold (the texture is destroyed). This measures leakage exactly,
-without any personal data and without a GPU, and checks the full chain down to
-the encoded file. Sign patches must keep their energy (anti-blur test).
+The real pipeline (merge, sign tracking, blur plan, rendering, encoding) runs
+on those inputs, then the oracle checks the **output video**: inside every face
+and plate box the fake detector reported (score ≥ `CONF_DETECT`), the
+high-frequency energy must have dropped below a threshold (the texture is
+destroyed). Frames where an object was not detected must keep its texture:
+nothing is carried between frames. This checks the full chain down to the
+encoded file, without any personal data and without a GPU. Sign patches must
+keep their energy (anti-blur test).
 
-Gate: **0 leaked object-frames** among objects the fake detector reported at
-least once, and 0 blurred sign pixels outside face/plate overlaps.
+Gate: **0 leaked detections** (a reported face or plate left sharp on its
+frame), and 0 blurred sign pixels outside face/plate overlaps. Missed frames
+are measured on real footage by the privacy benchmark (D).
 
 ## D — Annotated real clips (privacy benchmark)
 
@@ -93,7 +97,7 @@ applied on that frame:
 - **leakage rate** = unprotected object-frames / all object-frames, reported overall, per class, per size bucket (< 16 px, 16–32, 32–96, > 96 px high) and for `readable` objects only;
 - **tracks ever leaked** = share of ground-truth tracks with ≥ 1 unprotected frame;
 - **longest exposure** = longest run of consecutive unprotected frames;
-- **transient exposures** = unprotected frames with protection within ⅓ s before and after (what tracking and padding should eliminate);
+- **transient exposures** = unprotected frames with protection within ⅓ s before and after (one-off misses of the detector, visible as a flicker);
 - **over-blur ratio** = blurred pixels outside any ground-truth box / frame pixels (cost side, not gated).
 
 ### Gate

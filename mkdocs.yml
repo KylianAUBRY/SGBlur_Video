@@ -77,7 +77,7 @@ nav:
       - Command line: usage/cli.md
       - HTTP API: usage/api.md
   - Concepts:
-      - Tracking and post-processing: concepts/tracking.md
+      - Frame-by-frame blurring: concepts/tracking.md
       - Privacy and GDPR: concepts/privacy.md
       - Annotations and Panoramax: concepts/annotations.md
   - Guides:
@@ -108,4 +108,5 @@ nav:
       - adr/0009-model-registry-and-class-policy.md
       - adr/0010-privacy-testing-strategy.md
       - adr/0011-offline-linking.md
+      - adr/0012-independent-frames.md
   - Licence: license.md

@@ -3,11 +3,11 @@
 Panoramax can ask the blurring service to keep the unblurred parts of a
 picture so that a false positive (a blurred sign mistaken for a plate, say) can
 be un-blurred later (``PICTURE_PROCESS_KEEP_UNBLURRED_PARTS``). Like SGBlur,
-only **low-confidence** regions are kept: chains whose best score is below
+only **low-confidence** regions are kept: detections whose score is below
 ``KEEP_MAX_CONFIDENCE``. Unlike SGBlur, they are encrypted and expire:
 
 * crops of the original frames are collected during rendering, then packed in
-  a ZIP with a manifest (frame, box, chain, class, score);
+  a ZIP with a manifest (frame, box, class, score);
 * the archive is encrypted with AES-256-GCM, with a key derived (HKDF-SHA256)
   from the server secret ``KEEP_SECRET_KEY`` and the job's ``blurring_id``: the
   store alone, or the id alone, is not enough to read it;
@@ -23,7 +23,7 @@ import json
 import os
 import time
 import zipfile
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from pathlib import Path
 
 import av
@@ -70,12 +70,10 @@ class KeepRecorder:
     """Collect original crops of low-confidence regions during rendering (a render region sink).
 
     Args:
-        chain_scores: Best score of each chain (from the blur plan).
-        max_confidence: ``KEEP_MAX_CONFIDENCE``.
+        max_confidence: ``KEEP_MAX_CONFIDENCE``: regions detected with a lower score are kept.
     """
 
-    def __init__(self, chain_scores: Mapping[str, float], max_confidence: float) -> None:
-        self._scores = dict(chain_scores)
+    def __init__(self, max_confidence: float) -> None:
         self._max = max_confidence
         self._buffer = io.BytesIO()
         self._zip = zipfile.ZipFile(self._buffer, "w", compression=zipfile.ZIP_STORED)
@@ -83,7 +81,7 @@ class KeepRecorder:
 
     def __call__(self, index: int, frame: av.VideoFrame, shapes: Sequence[BlurShape]) -> None:
         """Store the original pixels of the kept shapes of frame ``index``."""
-        kept = [s for s in shapes if self._scores.get(s.track_id, 1.0) < self._max]
+        kept = [s for s in shapes if s.score < self._max]
         if not kept:
             return
         image = np.asarray(frame.to_ndarray(format="rgb24"), dtype=np.uint8)
@@ -101,9 +99,8 @@ class KeepRecorder:
                     "file": name,
                     "frame": index,
                     "box": [x1, y1, x2, y2],
-                    "chain": shape.track_id,
                     "class": shape.cls,
-                    "score": round(self._scores.get(shape.track_id, 0.0), 3),
+                    "score": round(shape.score, 3),
                 }
             )
 

@@ -5,6 +5,8 @@ date: 2026-10-06
 
 # Offline linking of detections the tracker leaves alone
 
+> **Update 2026-10-08.** Since [ADR-0012](0012-independent-frames.md), offline linking is used for signs and benchmark pre-annotation only; faces and plates are blurred frame by frame.
+
 ## Context and Problem Statement
 
 The first run on a real 8K equirectangular video (Q360 camera, 90 frames)

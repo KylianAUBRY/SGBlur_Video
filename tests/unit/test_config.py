@@ -19,22 +19,21 @@ from sgblur_video.config import (
 def test_defaults_are_privacy_first() -> None:
     settings = Settings()
     assert settings.api_name == "SGBlur-Video"
-    assert settings.conf_detect <= settings.conf_blur < settings.conf_sign
+    assert settings.conf_detect == pytest.approx(0.30)  # SGBlur's MIN_CONF
+    assert settings.conf_detect < settings.conf_sign
     assert settings.blur_method is BlurMethod.PIXELATE_BLUR
     assert settings.detect_profile is DetectProfile.STANDARD
-    assert settings.blur_temporal_padding_frames > 0
-    assert settings.blur_box_margin > 0
     assert settings.class_policy == DEFAULT_CLASS_POLICY
     assert settings.callback_allowed_hosts == []
     assert not settings.keep_enabled
 
 
 def test_reads_environment_without_prefix(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("CONF_BLUR", "0.2")
+    monkeypatch.setenv("CONF_DETECT", "0.2")
     monkeypatch.setenv("DETECT_URL", "http://detect:8001")
     monkeypatch.setenv("blur_method", "solid")  # case insensitive
     settings = Settings()
-    assert settings.conf_blur == pytest.approx(0.2)
+    assert settings.conf_detect == pytest.approx(0.2)
     assert str(settings.detect_url) == "http://detect:8001/"
     assert settings.blur_method is BlurMethod.SOLID
 
@@ -66,11 +65,6 @@ def test_class_policy_from_json(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_policy_without_blur_class_is_rejected() -> None:
     with pytest.raises(ValidationError, match="at least one class with action 'blur'"):
         Settings(class_policy={"sign": ClassAction.ANNOTATE})
-
-
-def test_detect_threshold_above_blur_threshold_is_rejected() -> None:
-    with pytest.raises(ValidationError, match="CONF_DETECT must be lower"):
-        Settings(conf_detect=0.5, conf_blur=0.3)
 
 
 @pytest.mark.parametrize("device", ["auto", "cpu", "mps", "cuda", "cuda:1"])
@@ -109,21 +103,21 @@ def test_secrets_are_masked_in_dumps() -> None:
 def test_settings_are_immutable() -> None:
     settings = Settings()
     with pytest.raises(ValidationError):
-        settings.conf_blur = 0.9  # type: ignore[misc]
+        settings.conf_detect = 0.9  # type: ignore[misc]
 
 
 def test_get_settings_is_cached(monkeypatch: pytest.MonkeyPatch) -> None:
     first = get_settings()
-    monkeypatch.setenv("CONF_BLUR", "0.3")
+    monkeypatch.setenv("CONF_DETECT", "0.4")
     assert get_settings() is first
     get_settings.cache_clear()
-    assert get_settings().conf_blur == pytest.approx(0.3)
+    assert get_settings().conf_detect == pytest.approx(0.4)
 
 
 def test_dotenv_file_is_read(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     env_file = tmp_path / ".env"
-    env_file.write_text("BLUR_BOX_MARGIN=0.3\n", encoding="utf-8")
-    assert Settings(_env_file=env_file).blur_box_margin == pytest.approx(0.3)  # type: ignore[call-arg]
+    env_file.write_text("PIXELATE_CELLS=8\n", encoding="utf-8")
+    assert Settings(_env_file=env_file).pixelate_cells == 8  # type: ignore[call-arg]
 
 
 def test_every_field_is_documented() -> None:

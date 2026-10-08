@@ -60,7 +60,7 @@ def test_timestamps_frames_and_audio_are_preserved(tmp_path: Path) -> None:
     settings = Settings(encoder="libx264")
     info = probe(source, settings)
     plan = BlurPlan(frame_count=len(VFR_PTS))
-    plan.frames[3] = [BlurShape("rect", (10, 10, 100, 100), "plate", "detected", "plate:1")]
+    plan.frames[3] = [BlurShape((10, 10, 100, 100), "plate", 0.9)]
     stats = render(info, plan, output, settings)
     assert stats.frames == len(VFR_PTS)
     assert stats.blurred_frames == 1

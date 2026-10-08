@@ -68,7 +68,7 @@ def test_class_groups() -> None:
     }
 
 
-def test_merge_unions_blur_classes_and_keeps_best_sign() -> None:
+def test_merge_keeps_the_smallest_blur_box_like_sgblur_and_the_best_sign() -> None:
     raw = [
         Detection("face", 0.4, (10, 10, 30, 30), ["g1024"]),
         Detection("face", 0.6, (12, 12, 34, 34), ["g2048"]),
@@ -79,10 +79,19 @@ def test_merge_unions_blur_classes_and_keeps_best_sign() -> None:
     ]
     merged = {d.cls: d for d in merge_detections(raw, DEFAULT_CLASS_POLICY)}
     assert set(merged) == {"face", "sign", "plate"}
-    assert merged["face"].box == (10, 10, 34, 34)
+    assert merged["face"].box == (10, 10, 30, 30)  # the smallest duplicate (SGBlur)
     assert merged["face"].score == 0.6
     assert sorted(merged["face"].passes) == ["g1024", "g2048"]
-    assert merged["sign"].box == (100, 100, 140, 140)  # best member, not the union
+    assert merged["sign"].box == (100, 100, 140, 140)  # best member
+
+
+def test_blur_duplicates_use_sgblur_iou_threshold() -> None:
+    # IoU 0.4: duplicates for SGBlur (> 0.33), not for signs (≥ 0.5).
+    left, right = (0, 0, 70, 10), (30, 0, 100, 10)
+    faces = [Detection("face", 0.5, left, ["g1024"]), Detection("face", 0.4, right, ["g2048"])]
+    signs = [Detection("sign", 0.9, left, ["g1024"]), Detection("sign", 0.8, right, ["g2048"])]
+    assert len(merge_detections(faces, DEFAULT_CLASS_POLICY)) == 1
+    assert len(merge_detections(signs, DEFAULT_CLASS_POLICY)) == 2
 
 
 def test_merge_containment_counts_as_duplicate() -> None:
