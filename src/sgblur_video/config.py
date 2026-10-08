@@ -137,15 +137,31 @@ class Settings(BaseSettings):
         description="Serve a web page at `/ui` to upload a video and download the blurred result.",
         json_schema_extra=_doc("Service identity"),
     )
+    debug_videos: bool = Field(
+        True,
+        description=(
+            "Accept `debug=1` jobs: an extra video (at most 1920 px wide) outlining every blurred "
+            "region and sign with its class."
+        ),
+        json_schema_extra=_doc("Service identity", "Each debug job also encodes a second video."),
+    )
 
     # --- Model and device -------------------------------------------------------------------
     model_name: str | None = Field(
         None,
         description=(
-            "Registry entry to use. Empty: the largest model of `MODEL_FAMILY` that fits the "
-            "accelerator memory."
+            "Registry entry to use (`sgblur-video models list`). Empty: the largest model of "
+            "`MODEL_FAMILY` that fits the accelerator memory."
         ),
         json_schema_extra=_doc("Model and device", "Smaller models miss more objects."),
+    )
+    model_path: Path | None = Field(
+        None,
+        description=(
+            "Local checkpoint (`.pt`) to use instead of the registry, to try any model: classes are "
+            "read from the file and checked against `CLASS_POLICY`. Overrides `MODEL_NAME`."
+        ),
+        json_schema_extra=_doc("Model and device", "Check its blur results before using it for real."),
     )
     model_family: str = Field(
         "yolo26",
@@ -170,7 +186,7 @@ class Settings(BaseSettings):
     )
     half: Literal["auto"] | bool = Field(
         "auto",
-        description="FP16 inference (Ultralytics `quantize=16`). `auto` enables it on CUDA only.",
+        description="FP16 inference (Ultralytics `quantize=16`). `auto`: on CUDA and Apple GPUs (MPS).",
         json_schema_extra=_doc("Model and device"),
     )
     class_policy: dict[str, ClassAction] = Field(
@@ -238,8 +254,11 @@ class Settings(BaseSettings):
 
     # --- Tracking ---------------------------------------------------------------------------
     tracker_config: Path = Field(
-        Path("configs/trackers/tracktrack-recall.yaml"),
-        description="Ultralytics tracker YAML (plus the `track_buffer_s` extension).",
+        Path("configs/trackers/flow.yaml"),
+        description=(
+            "Tracker YAML: the optical-flow tracker (`flow.yaml`) or an Ultralytics tracker "
+            "(plus the `track_buffer_s` extension)."
+        ),
         json_schema_extra=_doc("Tracking", "Gap filling relies on track continuity."),
     )
     track_width: int = Field(
@@ -263,14 +282,14 @@ class Settings(BaseSettings):
         json_schema_extra=_doc("Post-processing and blur", "More cells keep more identity information."),
     )
     blur_box_margin: float = Field(
-        0.15,
+        0.10,
         ge=0.0,
         le=1.0,
         description="Enlargement of each box on each side, as a fraction of its width/height.",
         json_schema_extra=_doc("Post-processing and blur", "Lower values may leave edges visible."),
     )
     blur_temporal_padding_frames: int = Field(
-        15,
+        12,
         ge=0,
         description="Frames blurred before the first and after the last detection of a track or orphan.",
         json_schema_extra=_doc("Post-processing and blur", "Lower values expose objects at track ends."),
@@ -287,6 +306,19 @@ class Settings(BaseSettings):
         ge=0.0,
         description="Longest gap inside a track that is filled by interpolation, in seconds.",
         json_schema_extra=_doc("Post-processing and blur", "Lower values leave gaps unblurred."),
+    )
+    max_interpolation_jump: float = Field(
+        20.0,
+        gt=0.0,
+        description=(
+            "Largest move, in box sizes, between two detections of a track that is filled by "
+            "interpolation (larger jumps are two objects tracked as one)."
+        ),
+        json_schema_extra=_doc(
+            "Post-processing and blur",
+            "Lower values leave fast objects unblurred between detections; "
+            "higher values sweep blur across the frame.",
+        ),
     )
     link_max_gap_s: float = Field(
         1.0,
@@ -421,7 +453,14 @@ class Settings(BaseSettings):
     )
 
     @field_validator(
-        "model_name", "detect_url", "api_token", "keep_secret_key", "tmp_dir", "keep_dir", mode="before"
+        "model_name",
+        "model_path",
+        "detect_url",
+        "api_token",
+        "keep_secret_key",
+        "tmp_dir",
+        "keep_dir",
+        mode="before",
     )
     @classmethod
     def _empty_string_is_none(cls, value: object) -> object:
@@ -429,6 +468,12 @@ class Settings(BaseSettings):
         if isinstance(value, str) and not value.strip():
             return None
         return value
+
+    @field_validator("model_path", mode="after")
+    @classmethod
+    def _expand_home(cls, value: Path | None) -> Path | None:
+        """Accept ``~/models/x.pt`` (a ``.env`` file does not expand ``~``)."""
+        return value.expanduser() if value is not None else None
 
     @field_validator("accepted_containers", "callback_allowed_hosts", mode="before")
     @classmethod

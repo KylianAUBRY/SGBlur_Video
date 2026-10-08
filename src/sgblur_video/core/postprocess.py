@@ -17,13 +17,16 @@ Steps for ``blur`` classes (faces, plates):
 3. **Selection** — a chain is blurred if it contains a detection ≥ ``CONF_BLUR``
    (so lower-score detections of a confirmed object are blurred too).
 4. **Gap filling** — frames between two detections of a chain (up to
-   ``MAX_INTERPOLATION_GAP_S``) get a linearly interpolated box.
+   ``MAX_INTERPOLATION_GAP_S``, and only if the object moved at most
+   ``MAX_INTERPOLATION_JUMP`` box sizes) get a linearly interpolated box.
 5. **Envelope smoothing** — a 5-frame moving average removes jitter; the final
    box is the union of the smoothed and original boxes, so it never shrinks.
 6. **Temporal padding** — ``BLUR_TEMPORAL_PADDING_FRAMES`` frames before the
    first and after the last detection of each chain segment are blurred too,
-   with the box extrapolated from the chain's velocity and growing by
-   ``BLUR_PADDING_GROWTH`` per frame.
+   with the box growing by ``BLUR_PADDING_GROWTH`` per frame. Its centre follows
+   the chain's motion only when at least ``PADDING_MIN_DETECTIONS`` detections
+   measure it, at most ``PADDING_MAX_SPEED`` box sizes per frame; its size does
+   not follow the chain's growth.
 7. **Margin and shape** — boxes are enlarged by ``BLUR_BOX_MARGIN``; faces are
    blurred with the ellipse circumscribing that box, other classes with the box.
 
@@ -41,7 +44,18 @@ from typing import Literal
 from sgblur_video.config import ClassAction, Settings
 from sgblur_video.core.detect import class_groups
 from sgblur_video.core.detections_io import Detections
-from sgblur_video.core.geometry import Box, area, center, clip, expand, height, lerp, union_box, width
+from sgblur_video.core.geometry import (
+    Box,
+    area,
+    center,
+    clip,
+    expand,
+    height,
+    lerp,
+    translate,
+    union_box,
+    width,
+)
 from sgblur_video.video360.wrap import normalize, unwrap_towards
 
 Source = Literal["detected", "interpolated", "padded", "orphan"]
@@ -54,6 +68,15 @@ SMOOTHING_WINDOW = 5
 
 #: Detections used to estimate a chain's velocity at each end.
 VELOCITY_SAMPLES = 5
+
+#: Padding follows a chain's motion only when this many detections measure it. Two boxes of an
+#: intermittently detected object (or of two objects linked together) give a meaningless
+#: velocity: on 8K 360° street video, padded plate boxes flew into the sky or onto the car
+#: bonnet, away from the plate they were meant to cover.
+PADDING_MIN_DETECTIONS = 3
+
+#: Fastest motion followed by padding, in box sizes per frame.
+PADDING_MAX_SPEED = 0.5
 
 #: Two fragments are linked only if their box areas differ by less than this factor.
 LINK_MAX_AREA_RATIO = 4.0
@@ -191,6 +214,20 @@ def _velocity(observations: Sequence[Observation]) -> Box:
     )
 
 
+def _padding_velocity(observations: Sequence[Observation]) -> tuple[float, float]:
+    """Centre motion followed by padding: zero below ``PADDING_MIN_DETECTIONS``, else capped.
+
+    Only the centre moves: following the growth of an approaching object's box as well made
+    padded boxes several times larger than the object (a 190 px plate padded with an 830 px box).
+    """
+    if len(observations) < PADDING_MIN_DETECTIONS:
+        return (0.0, 0.0)
+    limit = PADDING_MAX_SPEED * max(max(width(o.box), height(o.box)) for o in observations)
+    vx1, vy1, vx2, vy2 = _velocity(observations)
+    vx, vy = (vx1 + vx2) / 2, (vy1 + vy2) / 2
+    return (max(-limit, min(limit, vx)), max(-limit, min(limit, vy)))
+
+
 def _shift(box: Box, velocity: Box, frames: int) -> Box:
     return (
         box[0] + velocity[0] * frames,
@@ -306,6 +343,29 @@ def link_fragments(
     return chains
 
 
+def _jump(a: Box, b: Box) -> float:
+    """Distance between two box centres, in box sizes (largest side of either box)."""
+    size = max(width(a), height(a), width(b), height(b), 1.0)
+    (ax, ay), (bx, by) = center(a), center(b)
+    return math.hypot(bx - ax, by - ay) / size
+
+
+def _split_jumps(observations: list[Observation], max_jump: float) -> list[list[Observation]]:
+    """Split a chain where it jumps more than ``max_jump`` box sizes between two observations.
+
+    Such a jump is two objects tracked as one: interpolating would sweep a blur across the
+    frame between them, and a low-score detection of one would be blurred because of the score
+    of the other.
+    """
+    parts: list[list[Observation]] = [[observations[0]]]
+    for obs in observations[1:]:
+        if _jump(parts[-1][-1].box, obs.box) > max_jump:
+            parts.append([obs])
+        else:
+            parts[-1].append(obs)
+    return parts
+
+
 def _segments(observations: list[Observation], max_gap_frames: int) -> list[list[Observation]]:
     """Split a chain where two observations are further apart than the interpolation limit."""
     segments: list[list[Observation]] = [[observations[0]]]
@@ -399,55 +459,53 @@ def build_blur_plan(
     )
     stats: Counter[str] = Counter(fragments=len(fragments))
     chain_scores: dict[str, float] = {}
-    regions: dict[tuple[int, str], tuple[Box, Source, str]] = {}
+    # One region per frame and chain segment: chains are split where they jump, so the padding
+    # of one part must not be merged with the boxes of the next into a box spanning both.
+    regions: dict[tuple[int, str, int], tuple[Box, Source, str]] = {}
 
-    def add(frame: int, key: str, box: Box, source: Source, cls: str) -> None:
+    def add(frame: int, key: tuple[str, int], box: Box, source: Source, cls: str) -> None:
         if not 0 <= frame < frame_count:
             return
-        existing = regions.get((frame, key))
+        existing = regions.get((frame, *key))
         if existing is None:
-            regions[(frame, key)] = (box, source, cls)
+            regions[(frame, *key)] = (box, source, cls)
             return
         best = source if _SOURCE_PRIORITY[source] > _SOURCE_PRIORITY[existing[1]] else existing[1]
-        regions[(frame, key)] = (union_box([existing[0], box]), best, cls)
+        regions[(frame, *key)] = (union_box([existing[0], box]), best, cls)
 
     for chain in chains:
         observations = chain.observations
-        if max(o.score for o in observations) < settings.conf_blur:
+        # Each part of a chain split at a jump is a separate object and must reach CONF_BLUR alone.
+        parts = _split_jumps(observations, settings.max_interpolation_jump)
+        blurred = [part for part in parts if max(o.score for o in part) >= settings.conf_blur]
+        stats["parts_below_threshold"] += len(parts) - len(blurred) if blurred else 0
+        if not blurred:
             stats["chains_below_threshold"] += 1
             continue
         cls = chain.cls
         stats[f"chains_{cls}"] += 1
-        chain_scores[chain.id] = max(o.score for o in observations)
+        chain_scores[chain.id] = max(o.score for part in blurred for o in part)
         isolated = len(observations) == 1
-        for segment in _segments(observations, max_gap_frames):
+        segments = [segment for part in blurred for segment in _segments(part, max_gap_frames)]
+        for number, segment in enumerate(segments):
+            key = (chain.id, number)
             frames, boxes, observed = _densify(segment)
             smoothed = _smooth(boxes)
             for frame, box, was_observed in zip(frames, smoothed, observed, strict=True):
                 source: Source = ("orphan" if isolated else "detected") if was_observed else "interpolated"
-                add(frame, chain.id, box, source, cls)
-            v_head = _velocity(segment[:VELOCITY_SAMPLES])
-            v_tail = _velocity(segment[-VELOCITY_SAMPLES:])
+                add(frame, key, box, source, cls)
+            hx, hy = _padding_velocity(segment[:VELOCITY_SAMPLES])
+            tx, ty = _padding_velocity(segment[-VELOCITY_SAMPLES:])
             for step in range(1, padding + 1):
                 grow = growth * step / 2
-                add(
-                    frames[0] - step,
-                    chain.id,
-                    expand(_shift(smoothed[0], v_head, -step), grow),
-                    "padded",
-                    cls,
-                )
-                add(
-                    frames[-1] + step,
-                    chain.id,
-                    expand(_shift(smoothed[-1], v_tail, step), grow),
-                    "padded",
-                    cls,
-                )
+                head = translate(smoothed[0], -hx * step, -hy * step)
+                tail = translate(smoothed[-1], tx * step, ty * step)
+                add(frames[0] - step, key, expand(head, grow), "padded", cls)
+                add(frames[-1] + step, key, expand(tail, grow), "padded", cls)
 
     frame_width, frame_height = frame_size
     plan = BlurPlan(frame_count=frame_count, chain_scores=chain_scores, wrap_width=wrap_width)
-    for (frame, key), (box, source, cls) in sorted(regions.items(), key=lambda item: item[0]):
+    for (frame, chain_id, _segment), (box, source, cls) in sorted(regions.items(), key=lambda item: item[0]):
         enlarged = expand(box, settings.blur_box_margin)
         if wrap_width:
             # Horizontal position wraps around: only the vertical extent can leave the frame.
@@ -457,7 +515,7 @@ def build_blur_plan(
         elif area(clip(enlarged, frame_width, frame_height)) <= 0:
             continue
         kind: Literal["ellipse", "rect"] = "ellipse" if cls in ELLIPSE_CLASSES else "rect"
-        plan.frames.setdefault(frame, []).append(BlurShape(kind, enlarged, cls, source, key))
+        plan.frames.setdefault(frame, []).append(BlurShape(kind, enlarged, cls, source, chain_id))
         stats[f"boxes_{source}"] += 1
     stats["chains"] = len(chains)
     stats["frames_with_blur"] = len(plan.frames)

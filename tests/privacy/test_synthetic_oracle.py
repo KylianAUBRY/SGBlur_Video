@@ -37,6 +37,9 @@ from tests.privacy.synthetic import (
 
 pytestmark = pytest.mark.privacy
 
+#: The default optical-flow tracker and the previous default (overlap-based) must both pass.
+TRACKERS = ["flow.yaml", "tracktrack-recall.yaml"]
+
 # A blurred checkerboard keeps a small fraction of its gradient energy; the raw texture is ~50.
 BLURRED_MAX_ENERGY = 8.0
 SHARP_MIN_ENERGY = 25.0
@@ -54,16 +57,17 @@ def thresholds(request: pytest.FixtureRequest) -> dict[str, int]:
     return dict(data["synthetic_oracle"])
 
 
+@pytest.mark.parametrize("tracker", TRACKERS)
 @pytest.mark.parametrize(("codec", "pix_fmt"), [("libx264", "yuv420p"), ("libx265", "yuv420p10le")])
 def test_every_face_and_plate_frame_is_blurred(
-    tmp_path: Path, repo_root: Path, thresholds: dict[str, int], codec: str, pix_fmt: str
+    tmp_path: Path, repo_root: Path, thresholds: dict[str, int], codec: str, pix_fmt: str, tracker: str
 ) -> None:
     objects = scenario()
     source = tmp_path / "synthetic.mp4"
     write_video(source, objects, codec=codec, pix_fmt=pix_fmt)
     settings = Settings(
         models_file=repo_root / "models" / "registry.yaml",
-        tracker_config=repo_root / "configs" / "trackers" / "tracktrack-recall.yaml",
+        tracker_config=repo_root / "configs" / "trackers" / tracker,
         encoder="libx265" if codec == "libx265" else "libx264",
     )
     info = probe(source, settings)
@@ -125,14 +129,15 @@ def test_oracle_detects_leaks_when_protections_are_disabled(tmp_path: Path, repo
     assert leaks > 10
 
 
-def test_signs_are_annotated_once_and_best_frames_are_blurred(tmp_path: Path, repo_root: Path) -> None:
+@pytest.mark.parametrize("tracker", TRACKERS)
+def test_signs_are_annotated_once_and_best_frames_are_blurred(
+    tmp_path: Path, repo_root: Path, tracker: str
+) -> None:
     """One annotation per physical sign, short false positives dropped, best-frame JPEGs blurred."""
     objects = scenario()
     source = tmp_path / "synthetic.mp4"
     write_video(source, objects)
-    settings = Settings(
-        tracker_config=repo_root / "configs" / "trackers" / "tracktrack-recall.yaml", encoder="libx264"
-    )
+    settings = Settings(tracker_config=repo_root / "configs" / "trackers" / tracker, encoder="libx264")
     info = probe(source, settings)
     detections_path = tmp_path / "detections.jsonl"
     analyze(info, FakeDetector(objects), settings, detections_path, model={"name": "fake", "version": "1"})
@@ -164,14 +169,15 @@ def test_signs_are_annotated_once_and_best_frames_are_blurred(tmp_path: Path, re
                 assert texture_energy(picture, obj.box(entry["frame"])) < BLURRED_MAX_ENERGY
 
 
-def test_objects_crossing_the_360_seam_are_blurred_on_both_sides(tmp_path: Path, repo_root: Path) -> None:
+@pytest.mark.parametrize("tracker", TRACKERS)
+def test_objects_crossing_the_360_seam_are_blurred_on_both_sides(
+    tmp_path: Path, repo_root: Path, tracker: str
+) -> None:
     """A face crossing the 0°/360° seam (missed while crossing) and a plate straddling it stay blurred."""
     objects = scenario_360()
     source = tmp_path / "equirect.mp4"
     write_video(source, objects, width=WIDTH_360, height=HEIGHT_360, wrap=True)
-    settings = Settings(
-        tracker_config=repo_root / "configs" / "trackers" / "tracktrack-recall.yaml", encoder="libx264"
-    )
+    settings = Settings(tracker_config=repo_root / "configs" / "trackers" / tracker, encoder="libx264")
     info = probe(source, settings)
     assert info.projection == "equirectangular"
     detections_path = tmp_path / "detections.jsonl"

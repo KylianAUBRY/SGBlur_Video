@@ -28,3 +28,19 @@ def test_model_loads_and_detects(repo_root: Path) -> None:
     detections = model.detector.detect(image, plan, 0)
     assert isinstance(detections, list)
     assert all(d.cls in model.detector.class_names for d in detections)
+
+
+def test_model_path_loads_a_local_checkpoint(repo_root: Path) -> None:
+    from sgblur_video.models import ensure_weights, load_registry
+
+    registry_settings = Settings(models_file=repo_root / "models" / "registry.yaml", device="cpu")
+    entry = load_registry(registry_settings.models_file).get("yolo26s")
+    try:
+        weights = ensure_weights(entry, registry_settings.models_dir)
+    except Exception as exc:
+        pytest.skip(f"model download unavailable: {exc}")
+    model = load_model(registry_settings.model_copy(update={"model_path": weights}))
+    assert model.entry.family == "local"
+    assert model.entry.version == f"local-{entry.sha256[:8]}"  # same file as the registry entry
+    assert model.entry.local_path == weights.resolve()
+    assert "face" in model.detector.class_names

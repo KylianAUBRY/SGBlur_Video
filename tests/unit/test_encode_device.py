@@ -1,5 +1,6 @@
 """Tests of encoder selection and device helpers."""
 
+from dataclasses import replace
 from fractions import Fraction
 from pathlib import Path
 
@@ -56,6 +57,15 @@ def test_hevc_ten_bit_and_full_range() -> None:
     assert full_range.color_range == 2
 
 
+def test_x265_holds_few_frames_above_4k() -> None:
+    settings = Settings(encoder="libx265")
+    small = choose_encoder(_info("hevc", "yuv420p10le"), settings)
+    assert "rc-lookahead" not in small.options["x265-params"]
+    large = choose_encoder(replace(_info("hevc", "yuv420p10le"), width=7680, height=3840), settings)
+    params = large.options["x265-params"].split(":")
+    assert {"rc-lookahead=3", "bframes=1", "ref=1"} <= set(params)
+
+
 def test_other_codecs_fall_back_to_h264() -> None:
     choice = choose_encoder(_info("vp9"), Settings())
     assert choice.family == "h264"
@@ -81,4 +91,5 @@ def test_device_helpers() -> None:
     assert available_memory_gib("cpu") is None
     assert not use_half(Settings(), "cpu")
     assert use_half(Settings(), "cuda:0")
+    assert use_half(Settings(), "mps")
     assert use_half(Settings(half=True), "cpu")

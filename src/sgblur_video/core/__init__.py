@@ -9,7 +9,7 @@
 * ``analyze``: pass 1;
 * ``postprocess``: linking, gap filling, smoothing, padding, margins → blur plan;
 * ``encode`` / ``render``: pass 2 (blur, encode and mux in one loop);
-* ``debug``: annotated debug video (CLI only);
+* ``debug``: annotated debug video (CLI ``--debug``, API ``debug=1``);
 * ``frames``: best-frame JPEGs of signs (blurred, EXIF);
 * ``mp4boxes``: allow-listed transplant of spherical metadata, rotation and camera boxes;
 * ``geometry``: box arithmetic shared by every step;

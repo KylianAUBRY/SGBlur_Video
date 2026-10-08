@@ -30,7 +30,7 @@ def _configs(repo_root: Path) -> list[Path]:
 
 def test_tracker_configs_exist(repo_root: Path) -> None:
     names = {path.name for path in _configs(repo_root)}
-    assert {"tracktrack-recall.yaml", "botsort-recall.yaml", "bytetrack-recall.yaml"} <= names
+    assert {"flow.yaml", "tracktrack-recall.yaml", "botsort-recall.yaml", "bytetrack-recall.yaml"} <= names
 
 
 @pytest.mark.parametrize("name", ["tracktrack-recall.yaml", "botsort-recall.yaml", "bytetrack-recall.yaml"])
@@ -44,8 +44,21 @@ def test_keys_match_upstream(repo_root: Path, name: str) -> None:
     assert 0 < ours["track_low_thresh"] <= ours["track_high_thresh"] <= ours["new_track_thresh"]
 
 
-def test_default_tracker_compensates_camera_motion(repo_root: Path) -> None:
-    default = yaml.safe_load(
+def test_tracktrack_compensates_camera_motion(repo_root: Path) -> None:
+    config = yaml.safe_load(
         (repo_root / "configs" / "trackers" / "tracktrack-recall.yaml").read_text(encoding="utf-8")
     )
-    assert default["gmc_method"] != "none"
+    assert config["gmc_method"] != "none"
+
+
+def test_default_tracker_is_the_flow_tracker(repo_root: Path) -> None:
+    from sgblur_video.config import Settings
+    from sgblur_video.core.track import FLOW_KEYS, load_tracker_config
+
+    default = Settings().tracker_config
+    assert default == Path("configs/trackers/flow.yaml")
+    config = load_tracker_config(repo_root / default, fps=30.0)
+    assert config["tracker_type"] == "flow"
+    assert set(config) <= FLOW_KEYS
+    assert config["gate"] > 0
+    assert config["track_buffer"] == 30

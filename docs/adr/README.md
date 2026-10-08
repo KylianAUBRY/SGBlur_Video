@@ -8,7 +8,7 @@ status `superseded by ADR-XXXX`.
 |---|---|---|
 | [0001](0001-two-pass-architecture.md) | Two-pass architecture with an intermediate `detections.jsonl` | accepted (implemented) |
 | [0002](0002-own-detection-loop-with-ultralytics-trackers.md) | Own detection loop driving Ultralytics tracker classes | accepted (implemented) |
-| [0003](0003-default-tracker.md) | Default tracker: TrackTrack with a recall-oriented configuration | accepted (thresholds provisional) |
+| [0003](0003-default-tracker.md) | Default tracker: optical flow (was TrackTrack with a recall-oriented configuration) | accepted (re-check on the annotated clips) |
 | [0004](0004-irreversible-blur.md) | Irreversible blur method and shapes | accepted (implemented) |
 | [0005](0005-job-queue.md) | Job queue: SQLite and worker processes, no Redis | accepted (implemented) |
 | [0006](0006-licence.md) | Licence: MIT code with an AGPL-3.0 runtime dependency | accepted (maintainer, 2026-10-06) |

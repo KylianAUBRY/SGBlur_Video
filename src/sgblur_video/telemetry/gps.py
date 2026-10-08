@@ -79,11 +79,14 @@ def read_gps(info: VideoInfo) -> GpsTrack | None:
     with av.open(str(info.path)) as container:
         stream = container.streams[stream_info.index]
         time_base = to_fraction(stream.time_base) if stream.time_base else Fraction(1, 1000)
-        start_pts = stream.start_time or 0
+        # Times count from the first video frame, like frame timestamps (decode.iter_frames):
+        # the telemetry track may start later (e.g. in a frame range cut from a longer video).
+        video = container.streams.video[0]
+        origin = (video.start_time or 0) * (to_fraction(video.time_base) if video.time_base else Fraction(0))
         for packet in container.demux(stream):
             if packet.pts is None or not packet.size:
                 continue
-            start = float((packet.pts - start_pts) * time_base)
+            start = float(packet.pts * time_base - origin)
             duration = float((packet.duration or 0) * time_base) or 1.0
             samples += gps_samples(bytes(packet), start, duration)
     if not samples:

@@ -13,7 +13,8 @@ from pydantic import SecretStr
 
 from sgblur_video.api.blur_api import create_app
 from sgblur_video.config import Settings
-from sgblur_video.core import pipeline
+from sgblur_video.core.analyze import analyze
+from sgblur_video.core.probe import VideoInfo
 from sgblur_video.jobs import runner
 from sgblur_video.jobs.store import JobStore
 from sgblur_video.jobs.worker import Worker
@@ -23,16 +24,15 @@ from tests.privacy.synthetic import FRAMES, FakeDetector, scenario, write_video
 pytestmark = pytest.mark.integration
 
 
-class _Entry:
-    name, version, sha256, tag = "fake", "0", "0" * 64, "fake/0"
-
-
 @pytest.fixture(autouse=True)
 def fake_model(monkeypatch: pytest.MonkeyPatch) -> None:
-    def _load(_settings: Settings, _name: str | None = None) -> pipeline.LoadedModel:
-        return pipeline.LoadedModel(detector=FakeDetector(scenario()), entry=_Entry(), device="cpu")  # type: ignore[arg-type]
+    """Analysis with the scripted detector, in the job process (the real one runs in a child)."""
 
-    monkeypatch.setattr(runner, "load_model", _load)
+    def _analysis(job_id: str, info: VideoInfo, settings: Settings, output: Path) -> None:
+        progress = runner.Progress(JobStore(settings.data_dir), job_id)
+        analyze(info, FakeDetector(scenario()), settings, output, model={"name": "fake"}, progress=progress)
+
+    monkeypatch.setattr(runner, "run_analysis", _analysis)
 
 
 @pytest.fixture
@@ -81,6 +81,8 @@ def test_full_asynchronous_flow(settings: Settings, video_bytes: bytes) -> None:
     status = client.get(f"/jobs/{job['job_id']}").json()
     assert status["status"] == "succeeded", status
     assert status["progress"]["percent"] == 100
+    assert "debug" not in status["links"]
+    assert client.get(f"/jobs/{job['job_id']}/debug").json()["code"] == "debug_not_requested"
     video = client.get(f"/jobs/{job['job_id']}/video")
     assert video.status_code == 200
     assert video.headers["content-type"] == "video/mp4"
@@ -237,3 +239,43 @@ def test_web_ui(settings: Settings) -> None:
     assert "http://" not in page.text
     assert "https://" not in page.text
     assert _client(settings.model_copy(update={"web_ui": False})).get("/ui").status_code == 404
+
+
+def test_frame_range(settings: Settings, video_bytes: bytes) -> None:
+    client = _client(settings)
+    job = _submit(client, video_bytes, start_frame=10, end_frame=30)
+    assert job["progress"]["frames_total"] == 20
+    assert Worker(settings, isolate=False).run_once()
+    status = client.get(f"/jobs/{job['job_id']}").json()
+    assert status["status"] == "succeeded", status
+    assert _frames(client.get(f"/jobs/{job['job_id']}/video").content) == 20
+    metadata = client.get(f"/jobs/{job['job_id']}/metadata").json()
+    assert metadata["video"]["frame_range"] == {"start": 10, "end": 30}
+    paths = JobStore(settings.data_dir).paths(job["job_id"])
+    assert not any(p.name.startswith("input") for p in paths.root.iterdir())
+
+    for params, message in (
+        ({"start_frame": 5, "end_frame": 5}, "greater than start_frame"),
+        ({"start_frame": FRAMES}, "past the end"),
+    ):
+        response = client.post("/blur/", params=params, files={"video": ("a.mp4", video_bytes)})
+        assert (response.status_code, response.json()["code"]) == (422, "invalid_parameter")
+        assert message in response.json()["detail"]
+    assert not any(settings.effective_tmp_dir.iterdir())
+
+
+def test_debug_video(settings: Settings, video_bytes: bytes) -> None:
+    client = _client(settings)
+    job = _submit(client, video_bytes, debug=1, start_frame=10, end_frame=30)
+    assert Worker(settings, isolate=False).run_once()
+    status = client.get(f"/jobs/{job['job_id']}").json()
+    assert status["status"] == "succeeded", status
+    assert status["links"]["debug"] == f"/jobs/{job['job_id']}/debug"
+    debug = client.get(status["links"]["debug"])
+    assert debug.status_code == 200
+    assert debug.headers["content-type"] == "video/mp4"
+    assert _frames(debug.content) == 20
+
+    disabled = _client(settings.model_copy(update={"debug_videos": False}))
+    response = disabled.post("/blur/", params={"debug": 1}, files={"video": ("a.mp4", video_bytes)})
+    assert (response.status_code, response.json()["code"]) == (422, "debug_unavailable")

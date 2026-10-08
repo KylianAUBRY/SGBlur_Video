@@ -23,7 +23,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     YOLO_AUTOINSTALL=false \
     MODELS_DIR=/models \
     MODELS_FILE=/app/models/registry.yaml \
-    TRACKER_CONFIG=/app/configs/trackers/tracktrack-recall.yaml \
+    TRACKER_CONFIG=/app/configs/trackers/flow.yaml \
     DATA_DIR=/data
 COPY --from=uv /uv /uvx /bin/
 WORKDIR /app

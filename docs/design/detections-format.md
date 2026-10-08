@@ -60,8 +60,8 @@ file without `footer` as incomplete (the renderer refuses it unless
     ]
   },
   "tracking": {
-    "tracker": "tracktrack",
-    "config": "configs/trackers/tracktrack-recall.yaml",
+    "tracker": "flow",
+    "config": "configs/trackers/flow.yaml",
     "config_sha256": "…",
     "track_width": 1920,
     "groups": {"face": ["face"], "plate": ["plate"], "signage": ["sign", "direction"]}

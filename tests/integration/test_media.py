@@ -10,7 +10,8 @@ import pytest
 from sgblur_video.config import Settings
 from sgblur_video.core.postprocess import BlurPlan, BlurShape
 from sgblur_video.core.probe import UnsupportedVideoError, probe
-from sgblur_video.core.render import render
+from sgblur_video.core.render import RenderError, render
+from sgblur_video.core.trim import FrameRange, trim_video
 
 pytestmark = pytest.mark.integration
 
@@ -88,3 +89,42 @@ def test_video_too_long_is_rejected(tmp_path: Path) -> None:
     with pytest.raises(UnsupportedVideoError) as excinfo:
         probe(source, Settings(max_video_duration_s=1))
     assert excinfo.value.code == "video_too_long"
+
+
+def _audio_times(path: Path) -> list[float]:
+    with av.open(str(path)) as container:
+        stream = container.streams.audio[0]
+        return [
+            float(p.pts * stream.time_base) for p in container.demux(stream) if p.size and p.pts is not None
+        ]
+
+
+def test_frame_range_is_cut_with_its_audio(tmp_path: Path) -> None:
+    source, cut = tmp_path / "vfr.mp4", tmp_path / "cut.mp4"
+    _make_video(source)
+    settings = Settings(encoder="libx264")
+    info = probe(source, settings)
+    assert trim_video(info, settings, FrameRange(5, 15), cut) == 10
+    times = _video_pts(source)
+    # Frames 5..14 of the source, shifted to start at 0 (VFR gaps kept).
+    assert _video_pts(cut) == [round(t - times[5], 3) for t in times[5:15]]
+    audio = _audio_times(cut)
+    assert audio
+    assert min(audio) >= 0
+    # Audio covers the whole range and stops with it (one AAC packet is 21 ms; the muxer adds the
+    # encoder priming delay of a few ms to the read-back times).
+    assert max(audio) >= times[14] - times[5] - 0.03
+    assert max(audio) < times[15] - times[5] + 0.03
+    assert max(audio) < max(_audio_times(source)) - times[5] - 0.2  # the rest of the audio is not kept
+    assert len(_audio_packets(cut)) < len(_audio_packets(source))
+    with pytest.raises(RenderError, match="no frame"):
+        trim_video(info, settings, FrameRange(len(VFR_PTS) + 5), tmp_path / "empty.mp4")
+
+
+def test_frame_range_counts() -> None:
+    assert FrameRange().is_whole
+    assert FrameRange(10, 30).frames(100) == 20
+    assert FrameRange(90, 130).frames(100) == 10
+    assert FrameRange(10).frames(100) == 90
+    assert FrameRange(10).frames(None) is None
+    assert FrameRange(10, 12).frames(None) == 2

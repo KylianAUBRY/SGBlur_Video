@@ -30,7 +30,7 @@ from sgblur_video.core.detections_io import Detections
 from sgblur_video.core.pipeline import LoadedModel, load_model
 from sgblur_video.core.postprocess import BlurPlan, build_blur_plan
 from sgblur_video.core.probe import VideoInfo, probe
-from sgblur_video.models import ModelEntry, load_registry, select_model
+from sgblur_video.models import ModelEntry, resolve_model
 from sgblur_video.semantics.annotations import find_sign_tracks
 
 logger = logging.getLogger(__name__)
@@ -121,14 +121,8 @@ class ModelSource:
     model_name: str | None
 
     def entry(self) -> ModelEntry:
-        """Registry entry of the model that would be used (without loading it)."""
-        registry = load_registry(self.settings.models_file)
-        return select_model(
-            registry,
-            family=self.settings.model_family,
-            available_memory_gib=None,
-            name=self.model_name or self.settings.model_name,
-        )
+        """Entry of the model that would be used (registry name or checkpoint path; not loaded)."""
+        return resolve_model(self.settings, self.model_name)
 
     def sha256(self) -> str:
         """Checksum of the model that would be used."""
@@ -390,7 +384,7 @@ def run_speed(
         timed = max(1, len(durations))
         rows.append(
             {
-                "model": model_name,
+                "model": loaded.entry.tag,  # never a local path (reports are shared)
                 "device": loaded.device,
                 "profile": profile,
                 "passes": len(plan),

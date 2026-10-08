@@ -33,6 +33,17 @@ def test_circular_padding_and_wrapped_crops() -> None:
     assert crop_wrapped(image, (8, 0, 12, 2))[0, :, 0].tolist() == [8, 9, 0, 1]
 
 
+def test_crop_wrapped_matches_modular_indexing() -> None:
+    rng = np.random.default_rng(0)
+    image = rng.integers(0, 255, (6, 10, 3), dtype=np.uint8)
+    for region in [(-4, 1, 6, 5), (3, 0, 7, 6), (7, 2, 15, 4), (-12, 0, 3, 6), (0, 0, 25, 2)]:
+        x1, y1, x2, y2 = region
+        expected = image[y1:y2][:, np.arange(x1, x2) % 10]
+        cropped = crop_wrapped(image, region)
+        assert cropped.flags["C_CONTIGUOUS"]
+        assert np.array_equal(cropped, expected), region
+
+
 def test_equirect_plan_pads_and_tiles_cross_the_seam() -> None:
     plan = build_plan(
         7680, 3840, projection="equirectangular", profile=DetectProfile.STANDARD,

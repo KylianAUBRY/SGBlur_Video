@@ -50,7 +50,11 @@ def available_memory_gib(device: str) -> float | None:
 
 
 def use_half(settings: Settings, device: str) -> bool:
-    """Whether to run FP16 inference (``HALF=auto`` enables it on CUDA only)."""
+    """Whether to run FP16 inference (``HALF=auto`` enables it on CUDA and Apple MPS).
+
+    On MPS, FP16 made 8K detection 18 % faster and kept every detection above
+    ``CONF_BLUR`` of FP32 on 60 busy frames (514 faces, 146 plates, 91 signs).
+    """
     if settings.half == "auto":
-        return device.startswith("cuda")
+        return device.startswith("cuda") or device == "mps"
     return bool(settings.half)

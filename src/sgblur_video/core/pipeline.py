@@ -19,7 +19,7 @@ from sgblur_video.core.mp4boxes import Mp4BoxError, transplant
 from sgblur_video.core.postprocess import BlurPlan, build_blur_plan
 from sgblur_video.core.probe import VideoInfo, probe
 from sgblur_video.core.render import RegionSink, RenderStats, render
-from sgblur_video.models import ModelEntry, check_class_policy, ensure_weights, load_registry, select_model
+from sgblur_video.models import ModelEntry, check_class_policy, ensure_weights, resolve_model
 from sgblur_video.semantics.annotations import (
     Annotation,
     Metadata,
@@ -56,7 +56,7 @@ def load_model(settings: Settings, model_name: str | None = None) -> LoadedModel
 
     Args:
         settings: Model, device and policy settings.
-        model_name: Overrides ``MODEL_NAME``.
+        model_name: Registry name or checkpoint path; overrides ``MODEL_PATH`` and ``MODEL_NAME``.
 
     Returns:
         The loaded model.
@@ -65,13 +65,7 @@ def load_model(settings: Settings, model_name: str | None = None) -> LoadedModel
         sgblur_video.models.ClassPolicyError: If the model lacks a class to blur.
     """
     device = resolve_device(settings.device)
-    registry = load_registry(settings.models_file)
-    entry = select_model(
-        registry,
-        family=settings.model_family,
-        available_memory_gib=available_memory_gib(device),
-        name=model_name or settings.model_name,
-    )
+    entry = resolve_model(settings, model_name, available_memory_gib=available_memory_gib(device))
     weights = ensure_weights(entry, settings.models_dir)
     for warning in check_class_policy(entry.classes, settings.class_policy):
         logger.warning(warning)
@@ -333,7 +327,7 @@ def run_blur(
         detections_path: Where to write ``detections.jsonl``.
         metadata_path: Where to write the metadata JSON (annotations), if wanted.
         frames_dir: Folder for best-frame pictures of signs, if wanted.
-        model_name: Overrides ``MODEL_NAME``.
+        model_name: Registry name or checkpoint path; overrides ``MODEL_PATH`` and ``MODEL_NAME``.
         debug_output: Optional annotated debug video.
         max_frames: Process only the first frames (development).
         progress: Progress callback for both passes.

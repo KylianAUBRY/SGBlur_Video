@@ -21,7 +21,14 @@ import typer
 
 from sgblur_video import __version__
 from sgblur_video.config import Settings, get_settings
-from sgblur_video.models import ClassPolicyError, RegistryError, WeightsError, ensure_weights, load_registry
+from sgblur_video.models import (
+    ClassPolicyError,
+    RegistryError,
+    WeightsError,
+    ensure_weights,
+    load_registry,
+    resolve_model,
+)
 
 app = typer.Typer(
     name="sgblur-video",
@@ -40,7 +47,10 @@ app.add_typer(benchmark_app, name="benchmark")
 InputVideo = Annotated[Path, typer.Argument(exists=True, dir_okay=False, help="Input video (MP4 or MOV).")]
 OutputVideo = Annotated[Path, typer.Argument(dir_okay=False, help="Output video path.")]
 ModelOption = Annotated[
-    str | None, typer.Option("--model", help="Registry model name (default: automatic selection).")
+    str | None,
+    typer.Option(
+        "--model", help="Registry model name, or path of a .pt checkpoint (default: MODEL_PATH, MODEL_NAME)."
+    ),
 ]
 TrackerOption = Annotated[
     Path | None, typer.Option("--tracker", exists=True, dir_okay=False, help="Tracker YAML configuration.")
@@ -136,15 +146,69 @@ def show_config() -> None:
 
 @models_app.command(name="list")
 def models_list() -> None:
-    """List the models of the registry (`MODELS_FILE`)."""
+    """List the models of the registry (`MODELS_FILE`); `*` marks the one that would be used."""
     settings = get_settings()
     try:
         registry = load_registry(settings.models_file)
     except RegistryError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
+    try:
+        selected = resolve_model(settings).name
+    except RegistryError, WeightsError:
+        selected = None
     for entry in registry.models:
-        typer.echo(f"{entry.name:12s} {entry.family:8s} {entry.version:8s} classes={','.join(entry.classes)}")
+        mark = "*" if entry.name == selected else " "
+        typer.echo(
+            f"{mark} {entry.name:12s} {entry.family:8s} {entry.version:8s} classes={','.join(entry.classes)}"
+        )
+    if settings.model_path is not None:
+        typer.echo(
+            f"* MODEL_PATH: {settings.model_path.name} (local checkpoint, used instead of the registry)"
+        )
+
+
+@models_app.command(name="inspect")
+def models_inspect(
+    checkpoint: Annotated[Path, typer.Argument(dir_okay=False, help="A .pt checkpoint.")],
+) -> None:
+    """Show what a checkpoint contains, whether it can be used, and a registry entry to start from.
+
+    Try it without registering it: `MODEL_PATH=<file> sgblur-video blur …` or `--model <file>`.
+    """
+    from sgblur_video.models import check_class_policy, local_entry
+
+    settings = _setup()
+    try:
+        entry = local_entry(checkpoint)
+    except (RegistryError, WeightsError) as exc:
+        _fail(exc)
+    typer.echo(f"file:        {checkpoint.name} ({entry.size_bytes} bytes)")
+    typer.echo(f"sha256:      {entry.sha256}")
+    typer.echo(f"classes:     {', '.join(entry.classes)}")
+    typer.echo(f"train imgsz: {entry.train_imgsz}")
+    typer.echo(f"tag:         {settings.api_name}-{entry.tag} (Panoramax detection_model when used as is)")
+    try:
+        warnings = check_class_policy(entry.classes, settings.class_policy)
+    except ClassPolicyError as exc:
+        typer.echo(f"usable:      NO, {exc}")
+        raise typer.Exit(code=1) from exc
+    typer.echo("usable:      yes" + "".join(f"\n  warning: {w}" for w in warnings))
+    typer.echo(
+        "\nRegistry entry (models/registry.yaml), once the file is published at a pinned URL:\n"
+        f"  - name: {entry.name}\n"
+        "    family: <family>\n"
+        '    version: "<version>"\n'
+        f"    file: {checkpoint.name}\n"
+        "    url: <commit-pinned URL>\n"
+        f"    sha256: {entry.sha256}\n"
+        f"    size_bytes: {entry.size_bytes}\n"
+        f"    classes: [{', '.join(entry.classes)}]\n"
+        f"    train_imgsz: {entry.train_imgsz}\n"
+        "    min_memory_gib: 2\n"
+        '    licence: "<licence>"\n'
+        "    source: <project URL>"
+    )
 
 
 @models_app.command(name="download")

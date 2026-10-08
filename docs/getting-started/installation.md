@@ -26,9 +26,12 @@ uv run sgblur-video --help
 - The first command of a session takes a few extra seconds (PyTorch import,
   model load, GPU warm-up).
 
-On macOS, native installation is the recommended way to process videos: Docker
-containers on macOS cannot use the Apple GPU (MPS) or the VideoToolbox hardware
-encoder, which makes 8K videos several times slower.
+On macOS, native installation is the recommended way to process videos: it
+uses Metal, through PyTorch MPS for detection (in FP16) and VideoToolbox for
+hardware encoding. Docker containers on macOS run in a Linux virtual machine
+that cannot reach Metal: detection and encoding fall back to the CPU, 8K videos
+are several times slower (about 5 s per frame) and need about 6 GB of memory (see
+[troubleshooting](../guides/troubleshooting.md)).
 
 ## CPU-only Linux
 

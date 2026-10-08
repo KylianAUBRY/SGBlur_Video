@@ -217,6 +217,6 @@ src/sgblur_video/
 ├── models.py     registry loading, download, auto-selection
 ├── config.py
 └── cli.py
-configs/trackers/ tracktrack-recall.yaml, botsort-recall.yaml, bytetrack-recall.yaml
+configs/trackers/ flow.yaml (default), tracktrack-recall.yaml, botsort-recall.yaml, bytetrack-recall.yaml
 models/           registry.yaml (no weights in git)
 ```
